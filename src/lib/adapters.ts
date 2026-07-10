@@ -198,6 +198,53 @@ async function triageAndExtract(bodyText: string, authorId: string, rawContentId
 // Store raw first (L2). Extraction is a versioned, reprocessable transform.
 // ─────────────────────────────────────────────────────────────────────
 
+// Image URL extraction — finds image URLs in markdown, HTML, or bare URLs
+// Spec M1: "images attached to ingested posts flow in automatically;
+// image-hash dedup doubles as a chart-virality counter (crowding datum)."
+const IMAGE_URL_PATTERN = /(?:!\[[^\]]*\]\((https?:\/\/[^\s)]+\.(?:png|jpg|jpeg|gif|webp|svg))\)|<img[^>]+src=["'](https?:\/\/[^"']+)["']|(https?:\/\/[^\s"']+\.(?:png|jpg|jpeg|gif|webp|svg)))/gi;
+
+function extractImageUrls(bodyText: string): string[] {
+  const urls: string[] = [];
+  let match;
+  while ((match = IMAGE_URL_PATTERN.exec(bodyText)) !== null) {
+    const url = match[1] || match[2] || match[3];
+    if (url && !urls.includes(url)) urls.push(url);
+  }
+  return urls;
+}
+
+// Auto-create IngestedImage rows for any images found in the content.
+// These flow into the VLM pipeline automatically (PENDING status).
+async function extractAndStoreImages(rawContentId: string, bodyText: string): Promise<number> {
+  const imageUrls = extractImageUrls(bodyText);
+  let created = 0;
+  for (const imageUrl of imageUrls) {
+    const imageHash = hash(imageUrl);
+    // Dedup by hash — if image already exists, increment virality counter
+    const existing = await db.ingestedImage.findUnique({ where: { imageHash } });
+    if (existing) {
+      await db.ingestedImage.update({
+        where: { id: existing.id },
+        data: { viralityCount: { increment: 1 } },
+      });
+      continue;
+    }
+    await db.ingestedImage.create({
+      data: {
+        imageHash,
+        parentRawId: rawContentId,
+        storageRef: `images/auto/${imageHash}`,
+        classifierClass: "OTHER", // will be set by VLM pipeline
+        confidence: "LOW",
+        ratificationStatus: "PENDING", // VLM cron will pick this up
+        viralityCount: 1,
+      },
+    });
+    created++;
+  }
+  return created;
+}
+
 async function storeRaw(args: {
   url: string;
   title: string;
@@ -227,6 +274,8 @@ async function storeRaw(args: {
       extractionStatus: "PENDING",
     },
   });
+  // M1: images attached to ingested posts flow in automatically
+  await extractAndStoreImages(row.id, args.bodyText);
   return { id: row.id, created: true };
 }
 

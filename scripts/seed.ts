@@ -245,7 +245,8 @@ async function main() {
   });
 
   // BofA-via-Eugene — the 5-17% relayed claim (L8 speaker ≠ carrier)
-  const bofaBody = `@eugene_loh reposting BofA Securities memory team note:\n\n"BofA forecasts Q3 DRAM contract prices to rise 5 to 17 percent QoQ. The low end assumes Samsung HBM3E qualification slips into late Q3; the high end assumes clean qualification by mid-July. Our central case is 11 percent. We note that TrendForce's published range is wider than our model implies at the low end."\n\n— Reposted for visibility. Attribution: BofA Securities Memory Team.`;
+  // Includes a chart screenshot URL — auto-extracted by storeRaw into IngestedImage
+  const bofaBody = `@eugene_loh reposting BofA Securities memory team note:\n\n"BofA forecasts Q3 DRAM contract prices to rise 5 to 17 percent QoQ. The low end assumes Samsung HBM3E qualification slips into late Q3; the high end assumes clean qualification by mid-July. Our central case is 11 percent. We note that TrendForce's published range is wider than our model implies at the low end."\n\nChart: ![BofA DRAM Q3 Forecast](https://bofa.com/research/dram-q3-forecast-chart.png)\n\n— Reposted for visibility. Attribution: BofA Securities Memory Team.`;
   const bofaRaw = await db.rawContent.create({
     data: {
       contentHash: "bofa_via_eugene_" + Date.now(),
@@ -1042,6 +1043,44 @@ async function main() {
   await db.watermark.create({ data: { adapterType: "ANCHOR",     sourceKey: "TrendForce",                       lastGuid: "anchor:TrendForce:" + Date.now(), lastProcessedAt: daysAgo(0) }});
 
   // ─────────────────────────────────────────────────────────────────
+  // Ingested images — the VLM pipeline's customers
+  // The BofA DRAM chart screenshot is the flagship: it's been screenshotted
+  // and reshared by multiple accounts (virality count = 4), and it carries
+  // the printed BofA attribution (L8 org attribution on images).
+  // ─────────────────────────────────────────────────────────────────
+  console.log("› Seeding ingested images (VLM customers)...");
+  const bofaChartHash = "bofa_dram_chart_" + Date.now();
+  await db.ingestedImage.create({
+    data: {
+      imageHash: bofaChartHash,
+      parentRawId: bofaRaw.id,
+      storageRef: "images/seeded/bofa-dram-q3-chart.png",
+      classifierClass: "CHART",
+      annotationRoute: { valueLow: 5, valueHigh: 17, unit: "PERCENT", horizon: "Q3_2026", printedSource: "BofA Securities" } as any,
+      axisReadRoute: { valueLow: 7, valueHigh: 15, unit: "PERCENT", horizon: "Q3_2026", printedSource: "BofA Securities" } as any,
+      discrepancyFlag: "DUAL_ROUTE_MISMATCH", // annotation says 5-17, axis says 7-15 → 15%+ deviation
+      confidence: "LOW", // mismatch → LOW confidence, parser-enforced
+      ratificationStatus: "PENDING", // awaiting PS ratification
+      viralityCount: 4, // screenshotted by 4 different accounts
+    },
+  });
+  // A TrendForce chart — clean, no mismatch, already ratified
+  await db.ingestedImage.create({
+    data: {
+      imageHash: "trendforce_dram_chart_" + Date.now(),
+      parentRawId: tfRaw.id,
+      storageRef: "images/seeded/trendforce-dram-q3-chart.png",
+      classifierClass: "CHART",
+      annotationRoute: { valueLow: 13, valueHigh: 18, unit: "PERCENT", horizon: "Q3_2026", printedSource: "TrendForce" } as any,
+      axisReadRoute: { valueLow: 13, valueHigh: 18, unit: "PERCENT", horizon: "Q3_2026", printedSource: "TrendForce" } as any,
+      discrepancyFlag: "",
+      confidence: "HIGH",
+      ratificationStatus: "RATIFIED",
+      viralityCount: 2,
+    },
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   // Degraded sources — the 515 awaiting CP10 apply (here we add 6 as a representative sample)
   // ─────────────────────────────────────────────────────────────────
   console.log("› Seeding degraded sources (CP10 customers)...");
@@ -1096,6 +1135,7 @@ async function main() {
   console.log(`  Verif events:   ${await db.verificationEvent.count()}`);
   console.log(`  Watermarks:     ${await db.watermark.count()}`);
   console.log(`  Degraded src:   ${await db.source.count({ where: { degradedExtraction: true } })}`);
+  console.log(`  Ingested images:${await db.ingestedImage.count()}`);
   console.log(`  Queue items:    ${await db.queueItem.count()}`);
   console.log(`  Job runs:       ${await db.jobRun.count()}`);
 }

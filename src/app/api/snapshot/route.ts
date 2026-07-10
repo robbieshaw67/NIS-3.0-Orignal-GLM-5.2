@@ -103,6 +103,10 @@ export async function GET() {
     paperPositions: await db.position.count({ where: { ledgerType: "PAPER" } }),
     actualPositions: await db.position.count({ where: { ledgerType: "ACTUAL" } }),
     exitReviewPositions: await db.position.count({ where: { status: "EXIT_REVIEW" } }),
+    ingestedImages: await db.ingestedImage.count(),
+    pendingVlmImages: await db.ingestedImage.count({ where: { ratificationStatus: "PENDING" } }),
+    ratifiedVlmImages: await db.ingestedImage.count({ where: { ratificationStatus: "RATIFIED" } }),
+    vlmMismatches: await db.ingestedImage.count({ where: { discrepancyFlag: "DUAL_ROUTE_MISMATCH" } }),
   };
 
   // ── Audit log (recent) ──
@@ -137,5 +141,10 @@ export async function GET() {
     auditLog,
     falsifiers,
     watermarks,
+    ingestedImages: await db.ingestedImage.findMany({
+      include: { parentRaw: true },
+      orderBy: { viralityCount: "desc" },
+      take: 20,
+    }),
   });
 }

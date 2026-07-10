@@ -1,0 +1,57 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/jobs.rss",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/jobs.x",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/jobs.transcripts",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/jobs.anchors",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/jobs.events",
+      "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/jobs.events",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/jobs.events",
+      "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/jobs.debates",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/jobs.events",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/jobs.events",
+      "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/jobs.vlm",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/jobs.scorecard",
+      "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/jobs.backup",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

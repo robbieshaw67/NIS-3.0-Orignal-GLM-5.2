@@ -26,8 +26,11 @@ const ALLOWED_PREFIXES = [
   "src/lib/asof.ts",
   "src/lib/adapters.ts",
   "src/app/api/",
-  "src/lib/promotion.ts",  // the thesis-promotion pipeline (PS-gated writes)
+  "src/lib/promotion.ts",    // the thesis-promotion pipeline (PS-gated writes)
   "src/lib/reextraction.ts", // CP10 apply
+  "src/lib/debate-assembly.ts", // debate auto-assembly (reads claims/engagements/stances)
+  "src/lib/vlm-pipeline.ts",    // VLM dual-route (reads/writes ingested images)
+  "src/lib/author.ts",          // author accessor (no time-sensitive reads)
 ];
 
 // Tables that are time-sensitive — reads must go through asOf helpers

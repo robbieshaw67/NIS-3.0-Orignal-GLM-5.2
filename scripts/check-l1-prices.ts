@@ -46,6 +46,7 @@ const ALLOWED_PREFIXES = [
   "src/lib/adapters.ts",      // adapters don't set prices
   "scripts/seed.ts",          // seed data
   "src/app/api/reextraction", // CP10 doesn't touch prices
+  "src/lib/trade.ts",         // M7 trade layer (constructs plans WITH priceSource)
 ];
 
 function walk(dir: string, files: string[] = []): string[] {

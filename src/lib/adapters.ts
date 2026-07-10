@@ -626,49 +626,18 @@ export async function runAnchorsAdapter() {
 
 export async function runEventsPipeline() {
   const jobRun = await startJobRun("pipeline:events");
-  const counts = { clustered: 0, new_events: 0, echoes: 0 };
+  const counts = { clustered: 0, new_events: 0, echoes: 0, origins: 0, independents: 0 };
 
   try {
-    // Group sources into InformationEvents by entity overlap + 7-day window + citation/URL overlap
-    // (deterministic candidate blocking per Spec §6)
-    const ungrouped = await db.source.findMany({
-      where: { informationEventId: null },
-      include: { rawContent: true },
-      take: 50,
-    });
-
-    for (const src of ungrouped) {
-      // Simple clustering: same direction + same primary entity → same event
-      const entities = (src.entities as any[]) ?? [];
-      if (entities.length === 0) continue;
-
-      const candidate = await db.informationEvent.findFirst({
-        where: {
-          eventDate: { gte: new Date(Date.now() - 7 * 86400_000) },
-          sources: { some: { id: { not: src.id } } },
-        },
-        orderBy: { eventDate: "desc" },
-      });
-
-      if (candidate) {
-        await db.source.update({ where: { id: src.id }, data: { informationEventId: candidate.id, independenceClass: "ECHO" } });
-        counts.echoes++;
-      } else {
-        const ev = await db.informationEvent.create({
-          data: {
-            canonicalTitle: `Auto-clustered event from source ${src.id.slice(-6)}`,
-            eventDate: src.dateLatest ?? new Date(),
-            originType: "AUTO_CLUSTERED",
-            memberCount: 1,
-            authorBreadth: 1,
-            independentCount: 1,
-          },
-        });
-        await db.source.update({ where: { id: src.id }, data: { informationEventId: ev.id, independenceClass: "ORIGIN" } });
-        counts.new_events++;
-      }
-      counts.clustered++;
-    }
+    // M4: proper clustering — entity + 7-day window + citation/URL overlap +
+    // org-dependence rule (same org → ECHO, never INDEPENDENT)
+    const { clusterIntoEvents } = await import("./knowledge");
+    const result = await clusterIntoEvents();
+    counts.clustered = result.clustered;
+    counts.new_events = result.newEvents;
+    counts.echoes = result.echoes;
+    counts.origins = result.origins;
+    counts.independents = result.independents;
 
     await endJobRun(jobRun.id, "DONE", counts);
     return { ok: true, counts };
@@ -822,6 +791,19 @@ export async function runLadderRecompute() {
       }
     }
 
+    // M6: Compute crowding + UNPRICED_DIVERGENCE for each thesis
+    const { computeCrowding, computeDivergence } = await import("./knowledge");
+    for (const t of theses) {
+      await computeCrowding(t.id);
+      await computeDivergence(t.id);
+    }
+
+    // M7: Check mechanical exits for PAPER positions
+    const { checkMechanicalExits } = await import("./trade");
+    const exitResults = await checkMechanicalExits();
+    (counts as any).mechanicalExits = exitResults.exited;
+    (counts as any).exitFlagged = exitResults.flagged;
+
     await endJobRun(jobRun.id, "DONE", counts);
     return { ok: true, counts };
   } catch (e: any) {
@@ -832,16 +814,16 @@ export async function runLadderRecompute() {
 
 export async function runFalsifierMonitor() {
   const jobRun = await startJobRun("monitor:falsifiers");
-  const counts = { screened: 0, hits: 0, fired: 0 };
+  const counts = { screened: 0, hits: 0, fired: 0, expired: 0 };
 
   try {
-    const armed = await db.falsifier.findMany({ where: { status: { in: ["ARMED", "PARTIAL"] } } });
-    for (const f of armed) {
-      counts.screened++;
-      // Deterministic screen per batch — zero LLM on quiet batches (Spec §6)
-      // In production: check if the compiled query matched any new source.
-      await db.falsifier.update({ where: { id: f.id }, data: { lastCheckedAt: new Date() } });
-    }
+    // M4: deterministic screen — compiled query match + firing logic
+    const { screenFalsifiers } = await import("./knowledge");
+    const result = await screenFalsifiers();
+    counts.screened = result.screened;
+    counts.hits = result.hits;
+    counts.fired = result.fired;
+    counts.expired = result.expired;
 
     await endJobRun(jobRun.id, "DONE", counts);
     return { ok: true, counts };
@@ -1132,33 +1114,35 @@ export async function runVerificationsMonitor() {
         });
 
         for (const claim of linkedClaims) {
-          // In production: fetch the actual print from market data / anchor
-          // Here: resolve to the midpoint of the claim range as a placeholder
-          const resolvedValue = claim.valueLow && claim.valueHigh
-            ? (claim.valueLow + claim.valueHigh) / 2
-            : null;
-          if (resolvedValue !== null) {
-            await db.quantClaim.update({
-              where: { id: claim.id },
-              data: {
-                resolvedValue,
-                resolvedAt: new Date(),
-                resolutionSource: ev.eventType,
-              },
+          // M5: resolve against anchor print (not midpoint of own range)
+          // In production: fetch the actual print from market data / anchor release
+          // Here: use the anchor revision's latest value if available, else the
+          // TrendForce claim's midpoint as the anchor print
+          const { resolveClaimAgainstAnchor } = await import("./knowledge");
+          const anchorRevisions = await db.anchorRevision.findMany({
+            where: { metricId: claim.metricId },
+          });
+          let anchorValue: number | null = null;
+          if (anchorRevisions.length > 0) {
+            // Use the latest revision value
+            const latestRev = anchorRevisions[0];
+            const values = (latestRev.values as any[]) ?? [];
+            if (values.length > 0) {
+              anchorValue = values[values.length - 1].value;
+            }
+          }
+          // Fallback: use TrendForce's claim midpoint as the anchor
+          if (anchorValue === null) {
+            const tfClaim = await db.quantClaim.findFirst({
+              where: { metricId: claim.metricId, orgAttribution: "TrendForce" },
             });
+            if (tfClaim) {
+              anchorValue = ((tfClaim.valueLow ?? 0) + (tfClaim.valueHigh ?? 0)) / 2;
+            }
+          }
+          if (anchorValue !== null) {
+            await resolveClaimAgainstAnchor(claim.id, anchorValue);
             counts.resolved++;
-
-            // Update author calibration counters
-            await db.author.update({
-              where: { id: claim.authorId },
-              data: {
-                forecastsResolved: { increment: 1 },
-                // Correct if resolved value falls within claim range
-                forecastsCorrect: {
-                  increment: (resolvedValue >= (claim.valueLow ?? 0) && resolvedValue <= (claim.valueHigh ?? 0)) ? 1 : 0,
-                },
-              },
-            });
             counts.calibrationUpdates++;
           }
         }

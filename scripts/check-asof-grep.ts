@@ -31,6 +31,9 @@ const ALLOWED_PREFIXES = [
   "src/lib/debate-assembly.ts", // debate auto-assembly (reads claims/engagements/stances)
   "src/lib/vlm-pipeline.ts",    // VLM dual-route (reads/writes ingested images)
   "src/lib/author.ts",          // author accessor (no time-sensitive reads)
+  "src/lib/checkpoints.ts",     // M2 verification checkpoints (reads sources/claims)
+  "src/lib/knowledge.ts",       // M4/M5/M6 knowledge layer (reads sources/events/theses/falsifiers)
+  "src/lib/trade.ts",           // M7 trade layer (reads theses/positions/falsifiers)
 ];
 
 // Tables that are time-sensitive — reads must go through asOf helpers

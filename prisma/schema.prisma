@@ -1,0 +1,543 @@
+// NIP v3.0 — Narrative Intelligence Platform
+// Schema consolidated from v2 design doc §3 + v2.1 §2 (Debate objects) + §4 (SpanAnchor).
+// All Json columns store arrays/objects as TEXT in SQLite; typed & Zod-parsed at the boundary.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M1 — Acquisition (raw content first, per L2)
+// ─────────────────────────────────────────────────────────────────────
+
+model RawContent {
+  id              String   @id @default(cuid())
+  contentHash     String   @unique
+  url             String
+  storageRef      String   // object storage key — DB stores refs not blobs
+  title           String
+  adapterType     String   // X | RSS | TRANSCRIPT | ANCHOR | IMAGE | MANUAL
+  adapterVersion  String   @default("v1")
+  bodyText        String   @default("") // for span anchoring & search
+  threadId        String?
+  referencesUrl   String?
+  referenceType   String?  // QT | REPLY | RT | NONE
+  fetchedAt       DateTime @default(now())
+  extractionStatus String  @default("PENDING") // PENDING|EXTRACTED|FAILED|SKIPPED_TRIAGE|PENDING_RETRY
+  extractionError String   @default("")
+
+  sources         Source[]
+  images          IngestedImage[]
+  ingestionBatches IngestionBatch[] @relation("BatchRawContents")
+
+  @@index([adapterType, fetchedAt])
+  @@index([extractionStatus])
+}
+
+model IngestionBatch {
+  id                String   @id @default(cuid())
+  trigger           String   // SCHEDULED | MANUAL | DEEP_EXAMINE
+  status            String   @default("RUNNING") // RUNNING|DONE|FAILED
+  checkpointResults Json     @default("\"{}\"")
+  discardLedgerRef  String?
+  counts            Json     @default("\"{}\"") // opening→delta→closing (L12)
+  startedAt         DateTime @default(now())
+  finishedAt        DateTime?
+  rawContents       RawContent[] @relation("BatchRawContents")
+}
+
+model SourceCandidate {
+  id          String   @id @default(cuid())
+  handle      String   @unique
+  citations   Int      @default(0)
+  sampleRefs  Json     @default("[]")
+  status      String   @default("PROPOSED") // PROPOSED|ADMITTED|REJECTED
+  proposedAt  DateTime @default(now())
+  reviewedAt  DateTime?
+}
+
+model QueueItem {
+  id          String   @id @default(cuid())
+  type        String   // RULING|VLM_RATIFY|CANDIDATE|ATTRIBUTION|TRIPWIRE|QUARANTINE|ALERT
+  payload     Json     @default("\"{}\"")
+  status      String   @default("OPEN") // OPEN|RESOLVED|DEFERRED
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  priority    Int      @default(5) // 1=high, 9=low
+  summary     String   @default("")
+
+  @@index([status, priority])
+}
+
+model AdapterHealth {
+  id           String   @id @default(cuid())
+  adapter      String   @unique
+  lastSuccessAt DateTime?
+  lastRunAt    DateTime?
+  state        String   @default("GREEN") // GREEN|AMBER|RED
+  cause        String   @default("")
+  updatedAt    DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M3 — Extraction (Source = extracted insight)
+// ─────────────────────────────────────────────────────────────────────
+
+model Source {
+  id                String   @id @default(cuid())
+  rawContentId      String
+  rawContent        RawContent @relation(fields: [rawContentId], references: [id])
+  extractionVersion String   // prompt id — L2
+  degradedExtraction Boolean @default(false)
+  authorId          String
+  carrierAuthorId   String?  // L8: speaker vs carrier
+  dateIso           DateTime?
+  dateEarliest      DateTime?
+  dateLatest        DateTime? // L4 bounds, clamped <= fetchedAt at insert
+  direction         String   // BULLISH|BEARISH|NEUTRAL
+  conviction        String   // LOW|MEDIUM|HIGH
+  confidence        String   // CLEAN|HEDGED|AMBIGUOUS
+  insightType       String   // e.g. FORECAST | OBSERVATION | OPINION
+  verbatimQuote     String
+  keyInsight        String
+  tickers           Json     @default("[]")
+  entities          Json     @default("[]") // canonical entity ids
+  insightMetadata   Json     @default("\"{}\"")
+  informationEventId String?
+  informationEvent   InformationEvent? @relation(fields: [informationEventId], references: [id])
+  independenceClass String   @default("UNCLASSIFIED") // ORIGIN|INDEPENDENT|ECHO
+  // v2.1 §4 span anchoring — the key to Room 1 & 2
+  spanStart         Int?
+  spanEnd           Int?
+  spanConfidence    String?  // EXACT|FUZZY
+  createdAt         DateTime @default(now())
+
+  quantClaims       QuantClaim[]
+  debatePositions   DebatePosition[]
+
+  @@index([informationEventId])
+  @@index([authorId, dateLatest])
+}
+
+model Entity {
+  id            String   @id @default(cuid())
+  canonicalName String   @unique
+  ticker        String?
+  aliases       Json     @default("[]")
+  orgId         String?
+  createdAt     DateTime @default(now())
+}
+
+model Metric {
+  id            String   @id @default(cuid())
+  canonicalName String   @unique
+  unit          String   // PERCENT | USD | MILLION_UNITS | ...
+  aliases       Json     @default("[]")
+  createdAt     DateTime @default(now())
+}
+
+model IngestedImage {
+  id              String   @id @default(cuid())
+  imageHash       String   @unique
+  parentRawId     String?
+  parentRaw       RawContent? @relation(fields: [parentRawId], references: [id])
+  storageRef      String
+  classifierClass String   // CHART|TABLE|TEXT_SCREENSHOT|OTHER
+  annotationRoute Json     @default("\"{}\"") // VLM call 1 result
+  axisReadRoute   Json     @default("\"{}\"") // VLM call 2 result
+  discrepancyFlag String   @default("") // "" | DUAL_ROUTE_MISMATCH
+  confidence      String   @default("LOW") // LOW|MEDIUM|HIGH
+  ratificationStatus String @default("PENDING") // PENDING|RATIFIED|REJECTED|PENDING_RETRY
+  viralityCount   Int      @default(1)
+  createdAt       DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M4 — Knowledge layer
+// ─────────────────────────────────────────────────────────────────────
+
+model InformationEvent {
+  id             String   @id @default(cuid())
+  canonicalTitle String
+  eventDate      DateTime
+  originType     String   // FORECAST | PRICING_RELEASE | EARNINGS | ...
+  originUrl      String?
+  memberCount    Int      @default(0)
+  authorBreadth  Int      @default(0)
+  independentCount Int    @default(0) // what downstream consumes (L7)
+  clusterVersion String   @default("v1")
+  createdAt      DateTime @default(now())
+
+  sources        Source[]
+  verificationEvents VerificationEvent[]
+  debates        Debate[] @relation("DebateResolutionEvents")
+
+  @@index([eventDate])
+}
+
+model QuantClaim {
+  id                String   @id @default(cuid())
+  sourceId          String
+  source            Source   @relation(fields: [sourceId], references: [id])
+  eventId           String?
+  thesisId          String?
+  authorId          String
+  carrierAuthorId   String?
+  orgAttribution    String?  // printed source on images (L8)
+  metricId          String
+  metricName        String   @default("")
+  valueLow          Float?
+  valueHigh         Float?   // ranges first-class
+  unit              String   @default("PERCENT")
+  horizon           String   // Q3_2026 | FY2026 | ...
+  claimedAt         DateTime @default(now())
+  extractionMethod  String   @default("TEXT") // TEXT|VLM
+  confidence        String   @default("MEDIUM")
+  resolvedValue     Float?
+  resolvedAt        DateTime?
+  resolutionSource  String   @default("")
+  spanStart         Int?     // v2.1 §4
+  spanEnd           Int?
+  thesis            Thesis?  @relation(fields: [thesisId], references: [id])
+
+  debatePositions   DebatePosition[]
+
+  @@index([metricId, horizon])
+}
+
+model AnchorRevision {
+  id        String   @id @default(cuid())
+  metricId  String
+  org       String
+  values    Json     @default("[]") // [{date, value}]
+  updatedAt DateTime @updatedAt
+}
+
+model VerificationEvent {
+  id            String   @id @default(cuid())
+  date          DateTime
+  eventType     String   // EARNINGS | PRICING_RELEASE | CAPEX_DISCLOSURE
+  entityId      String?
+  thesisLinks   Json     @default("[]") // [{thesisId, canVerify, canFalsify}]
+  falsifierIds  Json     @default("[]")
+  metricIds     Json     @default("[]")
+  status        String   @default("UPCOMING") // UPCOMING|PASSED_VERIFIED|PASSED_FALSIFIED|PASSED_MIXED|PASSED_UNRESOLVED
+  outcome       String   @default("")
+  informationEventId String?
+  informationEvent InformationEvent? @relation(fields: [informationEventId], references: [id])
+  createdAt     DateTime @default(now())
+
+  @@index([date, status])
+}
+
+model Falsifier {
+  id              String   @id @default(cuid())
+  forecastId      String?
+  statement       String
+  compiledQuery   Json     @default("\"{}\"") // canonical entities + keywords + direction
+  status          String   @default("ARMED") // ARMED|PARTIAL|FIRED|EXPIRED|RETIRED
+  eventFamily     String?  // same-trigger grouping for stress
+  armedAt         DateTime @default(now())
+  expiresAt       DateTime?
+  lastCheckedAt   DateTime?
+  firingEvidence Json     @default("\"{}\"")
+  thesisIds       Json     @default("[]")
+
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M5 — Author intelligence
+// ─────────────────────────────────────────────────────────────────────
+
+model Author {
+  id                 String   @id @default(cuid())
+  handle             String   @unique
+  realName           String
+  cluster            String   @default("")
+  epistemicClass     String   @default("UNRESOLVED") // CHANNEL_PRIMARY | ACCESS_ANALYST | MODEL_BUILDER | POSITIONED_MANAGER | SYNTHESIZER | UNRESOLVED
+  orgAffiliation     String?
+  mergedInto         String?
+  mergeBasis         String?
+  calibrationScore   Float    @default(0.5)
+  forecastsMade      Int      @default(0)
+  forecastsResolved  Int      @default(0)
+  forecastsCorrect   Int      @default(0)
+  brierScore         Float?
+  magnitudeError     Float?
+  leadTimeDays       Float?
+  authorityWeight    Float    @default(1.0) // readable ONLY via getAuthorityWeight() accessor (floor ≥5 resolved)
+  avatarColor        String   @default("#64748b")
+  bio                String   @default("")
+  createdAt          DateTime @default(now())
+
+  stances            AuthorStance[]
+  stanceChanges      StanceChange[]
+  familyStats        AuthorFamilyStats[]
+}
+
+model AuthorStance {
+  id                String   @id @default(cuid())
+  authorId          String
+  author            Author   @relation(fields: [authorId], references: [id])
+  narrativeFamily   String
+  rollingDirection  Float    @default(0.0) // -1 bearish ... +1 bullish
+  rollingConviction Float    @default(0.0)
+  insightCount      Int      @default(0)
+  postingBaseline   Float    @default(0.0)
+  lastEventDate     DateTime?
+
+  @@index([authorId, narrativeFamily])
+}
+
+model StanceChange {
+  id              String   @id @default(cuid())
+  authorId        String
+  author          Author   @relation(fields: [authorId], references: [id])
+  narrativeFamily String
+  changeType      String   // CONSISTENT | MODERATING | REVERSING | NEW_ENGAGEMENT | SILENCE
+  priorStance     Float    @default(0.0)
+  newStance       Float    @default(0.0)
+  magnitude       Float    @default(0.0)
+  triggerEventId  String?
+  reviewed        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
+
+model AuthorFamilyStats {
+  id                String   @id @default(cuid())
+  authorId          String
+  author            Author   @relation(fields: [authorId], references: [id])
+  family            String
+  originationRate   Float    @default(0.0)
+  medianEchoLagHrs  Float?
+  upstreamScore     Float    @default(0.0)
+
+  @@unique([authorId, family])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M6 — Thesis engine
+// ─────────────────────────────────────────────────────────────────────
+
+model Thesis {
+  id                      String   @id @default(cuid())
+  title                   String
+  direction               String   // BULLISH | BEARISH | NEUTRAL
+  stage                   String   @default("OBSERVATION") // OBSERVATION|HYPOTHESIS|VALIDATED|ACTIONABLE
+  eventIds                Json     @default("[]")
+  independentEvents       Int      @default(0)
+  primaryIntegrityEvents  Int      @default(0)
+  effectiveN              Float    @default(0.0)
+  distinctOrgs            Int      @default(0)
+  epistemicClassCount     Int      @default(0)
+  contrarianStatus        String   @default("UNENGAGED") // SURVIVED|ENGAGED_UNRESOLVED|CONCEDED|KILLED|UNENGAGED
+  engagementSearchLoggedAt DateTime?
+  armedFalsifiers         Int      @default(0)
+  crowdingFlag            Boolean  @default(false)
+  verificationEventId     String?
+  divergenceVerdict       String   @default("UNKNOWN") // UNPRICED_DIVERGENCE|PRICED|UNKNOWN
+  narrativeFamily         String   @default("")
+  stageHistory            Json     @default("[]") // every transition + evidence snapshot
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  engagements             ThesisEngagement[]
+  expressions             ThesisExpression[]
+  tradePlans              TradePlan[]
+  quantClaims             QuantClaim[]
+  debates                 Debate[] @relation("DebateTheses")
+
+  @@index([stage])
+  @@index([narrativeFamily])
+}
+
+model ThesisEngagement {
+  id              String   @id @default(cuid())
+  thesisId        String
+  thesis          Thesis   @relation(fields: [thesisId], references: [id])
+  opposingEventId String
+  answeringEventId String?
+  engagementType  String   // SPECIFIC_OBJECTION | COUNTER_POINT | ...
+  status          String   @default("OPEN") // OPEN|ANSWERED|CONCEDED
+  proposedStatus  String?  // staged, L10
+  reasoning       String   @default("")
+  synthetic       Boolean  @default(false)
+  psDecision      String?
+  psDecidedAt     DateTime?
+  createdAt       DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M7 — Trade layer
+// ─────────────────────────────────────────────────────────────────────
+
+model ThesisExpression {
+  id              String   @id @default(cuid())
+  thesisId        String
+  thesis          Thesis   @relation(fields: [thesisId], references: [id])
+  entityId        String
+  instrumentType  String   // EQUITY | ADR | ETF | OPTIONS_STRUCTURE
+  thesisBeta      Int      @default(1)
+  betaEvidence    Json     @default("\"{}\"")
+  crowdingScore   Float    @default(0.0)
+  liquidityClass  String   @default("DEEP") // DEEP|MEDIUM|THIN
+  rankScore       Float    @default(0.0)
+  rationale       String   @default("")
+
+  tradePlans      TradePlan[]
+}
+
+model TradePlan {
+  id                  String   @id @default(cuid())
+  thesisId            String
+  thesis              Thesis   @relation(fields: [thesisId], references: [id])
+  expressionId        String
+  expression          ThesisExpression @relation(fields: [expressionId], references: [id])
+  entryLow            Float?
+  entryHigh           Float?
+  stopPrice           Float?
+  targetBase          Float?
+  targetBull          Float?
+  priceSource         String   @default("manual") // market-data | manual — NO third value (L1)
+  priceAsOfDate       DateTime?
+  atrValue            Float?
+  riskPerUnit         Float?
+  unitsPlanned        Float?
+  falsifierStopIds    Json     @default("[]")
+  verificationEventId String?
+  status              String   @default("DRAFT") // DRAFT|ARMED|FILLED|EXITED|CANCELLED
+  constructionLog     Json     @default("\"{}\"")
+  createdAt           DateTime @default(now())
+
+  positions           Position[]
+}
+
+model NarrativeFamily {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  thesisIds Json     @default("[]")
+  riskCapR  Float    @default(2.0)
+}
+
+model Position {
+  id            String   @id @default(cuid())
+  tradePlanId   String
+  tradePlan     TradePlan @relation(fields: [tradePlanId], references: [id])
+  ledgerType    String   // PAPER | ACTUAL
+  entryPrice    Float
+  entryDate     DateTime @default(now())
+  units         Float
+  riskR         Float
+  exitPrice     Float?
+  exitDate      DateTime?
+  exitReason    String   @default("")
+  rMultiple     Float?
+  setupType     String   // PRE_CONSENSUS | STANCE_CHANGE | CROWDING_FADE | SECOND_ORDER | DIVERGENCE
+  status        String   @default("OPEN") // OPEN|CLOSED|EXIT_REVIEW
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// v2.1 — Debate objects (Room 2)
+// ─────────────────────────────────────────────────────────────────────
+
+model Debate {
+  id                  String   @id @default(cuid())
+  question            String
+  debateType          String   // MAGNITUDE | DIRECTION | TIMING | MECHANISM
+  metricId            String?
+  metricName          String   @default("")
+  thesisIds           Json     @default("[]")
+  theses              Thesis[] @relation("DebateTheses")
+  status              String   @default("LIVE") // LIVE|RESOLVING|RESOLVED_A|RESOLVED_B|RESOLVED_MIXED|DORMANT
+  stakes              String   @default("")
+  resolutionEventIds  Json     @default("[]")
+  resolutionEvents    InformationEvent[] @relation("DebateResolutionEvents")
+  heatScore           Float    @default(0.0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  positions           DebatePosition[]
+
+  @@index([status, heatScore])
+}
+
+model DebatePosition {
+  id              String   @id @default(cuid())
+  debateId        String
+  debate          Debate   @relation(fields: [debateId], references: [id])
+  side            String   // A | B | NUANCED
+  authorId        String
+  authorName      String   @default("")
+  orgId           String?
+  statement       String
+  evidenceRefs    Json     @default("[]") // [{sourceId, spanStart, spanEnd, url}]
+  claimIds        Json     @default("[]")
+  stanceWeight    Float    @default(1.0) // book-talk discount applied
+  enteredAt       DateTime @default(now())
+  lastAffirmedAt  DateTime?
+
+  source          Source?  @relation(fields: [sourceId], references: [id])
+  sourceId        String?
+
+  quantClaims     QuantClaim[]
+
+  @@index([debateId, side])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M9 — Platform (cross-cutting)
+// ─────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String   // PS | SYSTEM | JOB:<name>
+  action     String
+  targetType String
+  targetId   String
+  payload    Json     @default("\"{}\"")
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model ProviderCall {
+  id            String   @id @default(cuid())
+  taskType      String
+  promptVersion String
+  provider      String
+  model         String
+  tokens        Int      @default(0)
+  costUsd       Float    @default(0.0)
+  latencyMs     Int      @default(0)
+  cacheHit      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([taskType, createdAt])
+}
+
+model JobRun {
+  id         String   @id @default(cuid())
+  job        String
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  status     String   @default("RUNNING") // RUNNING|DONE|FAILED
+  counts     Json     @default("\"{}\"")
+  error      String   @default("")
+
+  @@index([job, startedAt])
+}
+
+model GateThreshold {
+  id    String @id @default(cuid())
+  key   String @unique
+  value Float
+  note  String @default("")
+}

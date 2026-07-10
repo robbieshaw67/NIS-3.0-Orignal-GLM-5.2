@@ -1,0 +1,269 @@
+"use client";
+
+// NIP v3.0 — Ingestion Console (M8 surface #5, Spec §10)
+// Visual Intake (drop / multi-image batch / paste / mobile), adapters,
+// re-extraction console (CP10), batch forensics.
+
+import * as React from "react";
+import {
+  Upload, ImagePlus, Clipboard, RefreshCw, AlertTriangle,
+  FileSearch, Settings2, History,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { CauseChip, EvidenceLink } from "./grammar";
+import { cn } from "@/lib/utils";
+
+interface IngestionProps {
+  adapterHealth: any[];
+  rawContents?: any[];
+}
+
+// ── Visual Intake ──
+function VisualIntake() {
+  const [pastedUrl, setPastedUrl] = React.useState("");
+  const [pastedText, setPastedText] = React.useState("");
+  const [files, setFiles] = React.useState<string[]>([]);
+  const [dragOver, setDragOver] = React.useState(false);
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center gap-1.5 mb-3">
+        <ImagePlus className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Visual intake</h3>
+        <Badge variant="outline" className="text-[10px] h-4">VLM dual-route</Badge>
+      </div>
+
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const dropped = Array.from(e.dataTransfer.files).map(f => f.name);
+          setFiles(prev => [...prev, ...dropped]);
+        }}
+        className={cn(
+          "border-2 border-dashed rounded-lg p-6 text-center transition-colors",
+          dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30",
+        )}
+      >
+        <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
+        <p className="text-xs text-muted-foreground">
+          Drop images, charts, or screenshots here — multi-image batch supported
+        </p>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Mobile: tap to upload · each image classified, dual-route VLM, ratification queue
+        </p>
+      </div>
+
+      {files.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {files.map((f, i) => (
+            <div key={i} className="flex items-center justify-between text-[11px] rounded bg-muted/20 px-2 py-1">
+              <span className="truncate">{f}</span>
+              <Badge variant="outline" className="text-[9px] h-3.5 bg-amber-500/10">PENDING VLM</Badge>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Separator className="my-3" />
+
+      {/* URL deep-examine */}
+      <div className="space-y-2">
+        <div className="text-[11px] font-medium text-muted-foreground">Deep-examine URL</div>
+        <Input
+          placeholder="https://…"
+          value={pastedUrl}
+          onChange={(e) => setPastedUrl(e.target.value)}
+          className="h-8 text-xs"
+        />
+        <Button size="sm" variant="outline" className="h-7 text-xs w-full" disabled={!pastedUrl}>
+          <FileSearch className="h-3 w-3 mr-1" /> Fetch + extract
+        </Button>
+      </div>
+
+      <Separator className="my-3" />
+
+      {/* Paste raw text */}
+      <div className="space-y-2">
+        <div className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+          <Clipboard className="h-3 w-3" /> Paste raw content
+        </div>
+        <Textarea
+          placeholder="Paste tweet, transcript excerpt, or article text…"
+          value={pastedText}
+          onChange={(e) => setPastedText(e.target.value)}
+          className="text-xs min-h-[80px]"
+        />
+        <Button size="sm" variant="outline" className="h-7 text-xs w-full" disabled={!pastedText.trim()}>
+          Triage → extract
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Adapter status ──
+function AdapterStatus({ adapters }: { adapters: any[] }) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center gap-1.5 mb-3">
+        <Settings2 className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Adapters</h3>
+        <span className="text-[10px] text-muted-foreground">watermark-incremental · store-raw-first (L2)</span>
+      </div>
+      <div className="space-y-2">
+        {adapters.map(a => (
+          <div key={a.id} className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px]">{a.adapter}</span>
+              {a.lastRunAt && (
+                <span className="text-[10px] text-muted-foreground">
+                  ran {new Date(a.lastRunAt).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            <CauseChip state={a.state} cause={a.cause} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Re-extraction console (Checkpoint 10) ──
+function ReExtractionConsole({ rawContents = [] }: { rawContents?: any[] }) {
+  const degraded = rawContents.filter(r => r.sources?.some((s: any) => s.degradedExtraction));
+  const [selectedVersion, setSelectedVersion] = React.useState("deep_extract/v3");
+  const [diffing, setDiffing] = React.useState(false);
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-1.5">
+          <History className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Re-extraction console (CP10)</h3>
+        </div>
+        <Badge variant="outline" className="text-[10px] h-4 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+          dry-run only · apply step missing
+        </Badge>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+        Source-set × prompt-version → dry-run diff → PS approves → applies (L2 made operable).
+        The 515 degraded legacy sources are its first customer. Until CP10 apply ships, no prompt upgrade touches production extractions.
+      </p>
+
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-[11px] text-muted-foreground">Target version:</span>
+        <select
+          value={selectedVersion}
+          onChange={(e) => setSelectedVersion(e.target.value)}
+          className="h-7 text-xs rounded border bg-background px-2"
+        >
+          <option value="deep_extract/v3">deep_extract/v3 (current)</option>
+          <option value="deep_extract/v4">deep_extract/v4 (proposed)</option>
+          <option value="deep_extract/v5">deep_extract/v5 (experimental)</option>
+        </select>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDiffing(!diffing)}>
+          <RefreshCw className={cn("h-3 w-3 mr-1", diffing && "animate-spin")} /> Dry-run diff
+        </Button>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="grid grid-cols-3 gap-2 text-[10px] text-muted-foreground uppercase tracking-wide mb-1">
+          <span>Source</span>
+          <span>Current</span>
+          <span>Diff</span>
+        </div>
+        {(rawContents.slice(0, 5)).map(r => (
+          <div key={r.id} className="grid grid-cols-3 gap-2 text-[11px] rounded bg-muted/20 p-2">
+            <span className="truncate" title={r.title}>{r.title.slice(0, 30)}…</span>
+            <span className="font-mono text-[10px] text-muted-foreground">{r.sources?.[0]?.extractionVersion ?? "—"}</span>
+            <span className={cn("font-mono text-[10px]", diffing ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+              {diffing ? "+ 2 fields / - 1 field" : "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 pt-3 border-t flex items-center justify-between text-[10px]">
+        <EvidenceLink
+          label="L2"
+          value="raw stored"
+          evidence={
+            <p>Every extraction is a versioned, reprocessable transform over stored raw.
+            Phase-5's prompt upgrade orphaned 515 insights because raw pages were discarded — that's the failure this checkpoint prevents.</p>
+          }
+        />
+        <span className="text-muted-foreground">515 degraded sources awaiting apply</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Batch forensics ──
+function BatchForensics({ rawContents = [] }: { rawContents?: any[] }) {
+  const byStatus = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of rawContents) {
+      m[r.extractionStatus] = (m[r.extractionStatus] ?? 0) + 1;
+    }
+    return m;
+  }, [rawContents]);
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center gap-1.5 mb-3">
+        <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Batch forensics</h3>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+        {Object.entries(byStatus).map(([status, count]) => (
+          <div key={status} className="rounded bg-muted/20 p-2">
+            <div className="text-[10px] text-muted-foreground truncate">{status}</div>
+            <div className="font-semibold tabular-nums">{count}</div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-2">
+        Checkpoint 3 (sampled extraction verification) quarantines batches on verbatim-quote mismatch (L3 demonstrated).
+      </p>
+    </div>
+  );
+}
+
+export function IngestionConsole({ adapterHealth, rawContents }: IngestionProps) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-lg font-semibold">Ingestion console</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Visual intake · adapters · re-extraction console (CP10) · batch forensics.
+            Everything that comes in stores raw first (L2), errors never verdict (L3), counts reconcile (L12).
+          </p>
+        </div>
+      </div>
+
+      <ScrollArea className="flex-1">
+        <div className="p-4 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
+          <div className="space-y-4">
+            <VisualIntake />
+            <BatchForensics rawContents={rawContents} />
+          </div>
+          <div className="space-y-4">
+            <AdapterStatus adapters={adapterHealth} />
+            <ReExtractionConsole rawContents={rawContents} />
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}

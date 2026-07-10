@@ -4,7 +4,6 @@
 // L3: CP3 violations quarantine, never silently downgrade.
 
 import { NextRequest, NextResponse } from "next/server";
-import { applyReextraction, type ReextractionDiff } from "@/lib/reextraction";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,6 +14,11 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(diffs) || diffs.length === 0) {
     return NextResponse.json({ ok: false, error: "diffs[] required" }, { status: 400 });
   }
-  const result = await applyReextraction({ diffs: diffs as ReextractionDiff[], psActor });
-  return NextResponse.json({ ok: true, ...result });
+  try {
+    const { applyReextraction } = await import("@/lib/reextraction");
+    const result = await applyReextraction({ diffs, psActor });
+    return NextResponse.json({ ok: true, ...result });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "apply-failed", applied: 0, skipped: 0, auditIds: [] }, { status: 500 });
+  }
 }

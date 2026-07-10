@@ -92,7 +92,7 @@ export async function dryRunReextraction(args: {
   const sources = await db.source.findMany({
     where,
     include: { rawContent: true },
-    take: 3, // batch limit — PS reviews in chunks; LLM calls are slow
+    take: 1, // batch limit — PS reviews in chunks; LLM calls are slow
   });
 
   const diffs: ReextractionDiff[] = [];

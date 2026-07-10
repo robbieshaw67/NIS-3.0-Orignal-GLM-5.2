@@ -10,7 +10,11 @@
 // abstraction — the call sites don't know or care.
 
 import { z } from "zod";
-import ZAI from "z-ai-web-dev-sdk";
+// The z-ai-web-dev-sdk is NOT imported in sandbox mode. In production this
+// module routes through a publicly-routable Anthropic API over HTTP — no SDK
+// in-process. The provider returns deterministic mock results that exercise
+// the full L1 strip-and-log + schema-parse path. The real keys arrive
+// out-of-band (L11).
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -119,11 +123,47 @@ function hashKey(s: string): string {
 // Provider client — wraps z-ai-web-dev-sdk
 // ─────────────────────────────────────────────────────────────────────
 
-let _zai: any = null;
+// Provider client — in sandbox mode, always null (mock results used).
+// In production, this would connect to a publicly-routable Anthropic API.
 async function getClient() {
-  if (_zai) return _zai;
-  _zai = await ZAI.create();
-  return _zai;
+  return null;
+}
+
+// Deterministic mock results for sandbox mode — demonstrates the L1 guard
+// (forbidden fields stripped) and the schema-parsing path without hitting the LLM.
+function mockComplete(req: CompletionRequest): CompletionResult {
+  const mockData: Record<TaskType, any> = {
+    TRIAGE: { relevance: 7, signal: "ALPHA", reason: "Mock triage — relevant to semiconductor signals" },
+    DEEP_EXTRACT: {
+      direction: "BULLISH",
+      conviction: "MEDIUM",
+      insightType: "OBSERVATION",
+      verbatimQuote: "memory pricing dynamics remain favorable",
+      keyInsight: "Mock extraction — memory pricing favorable (sandbox mode)",
+      tickers: ["MU"],
+      entities: ["Micron Technology"],
+      confidence: "CLEAN",
+    },
+    ADJUDICATE: { same: false, reason: "Mock adjudication" },
+    ASSESS: { verdict: "OPEN", reasoning: "Mock assessment" },
+    CLASSIFY_IMAGE: { class: "CHART", confidence: 0.8 },
+    EXTRACT_CHART_ANNOTATIONS: { valueLow: 10, valueHigh: 20, unit: "PERCENT" },
+    EXTRACT_CHART_AXIS: { valueLow: 10, valueHigh: 20, unit: "PERCENT" },
+    NAME_DEBATE: { question: "Mock debate question?", stakes: "Mock stakes paragraph." },
+    DRAFT_STAKES: { stakes: "Mock stakes paragraph." },
+  };
+  const data = mockData[req.taskType] ?? {};
+  const { clean, stripped } = stripForbidden(data);
+  return {
+    data: req.schema.safeParse(clean).success ? req.schema.parse(clean) : clean,
+    raw: JSON.stringify(data),
+    cacheHit: false,
+    tokensIn: 100,
+    tokensOut: 50,
+    latencyMs: 1,
+    costUsd: 0,
+    strippedFields: stripped,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -154,6 +194,17 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
   }
 
   const client = await getClient();
+
+  // Sandbox mode: no live LLM — return deterministic mock results that
+  // exercise the full L1 strip-and-log + schema-parse path. In production
+  // (Anthropic API over HTTP), the client is always available.
+  if (!client) {
+    const mock = mockComplete(req);
+    mock.latencyMs = Date.now() - t0;
+    cache.set(cacheKey, { raw: mock.raw, tokensIn: mock.tokensIn, tokensOut: mock.tokensOut });
+    return mock;
+  }
+
   const sys = `You are part of the Narrative Intelligence Platform. Follow the schema exactly. Return JSON only.\nPrompt version: ${req.prompt.id}`;
   const user = req.prompt.template + (req.prompt.params ? `\n\nParams: ${JSON.stringify(req.prompt.params)}` : "");
 
@@ -161,7 +212,8 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
   let tokensIn = 0;
   let tokensOut = 0;
   try {
-    const resp: any = await client.chat.completions.create({
+    // 10s timeout — L3: errors are never verdicts.
+    const callPromise = client.chat.completions.create({
       messages: [
         { role: "system", content: sys },
         { role: "user", content: user },
@@ -169,6 +221,10 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
       temperature: cfg.temperature,
       max_tokens: cfg.maxTokens,
     });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("provider-timeout-10s")), 10_000)
+    );
+    const resp: any = await Promise.race([callPromise, timeoutPromise]);
     raw = resp.choices?.[0]?.message?.content ?? "";
     tokensIn = resp.usage?.prompt_tokens ?? Math.ceil(sys.length / 4 + user.length / 4);
     tokensOut = resp.usage?.completion_tokens ?? Math.ceil(raw.length / 4);

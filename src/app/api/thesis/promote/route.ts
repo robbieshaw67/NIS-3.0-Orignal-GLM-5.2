@@ -2,7 +2,6 @@
 // L10: PS-gated — only PS can call this. In production, requires auth check.
 
 import { NextRequest, NextResponse } from "next/server";
-import { attemptPromote } from "@/lib/promotion";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -14,9 +13,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "thesisId required" }, { status: 400 });
   }
   try {
+    const { attemptPromote } = await import("@/lib/promotion");
     const result = await attemptPromote({ thesisId, psActor });
     return NextResponse.json({ ok: true, ...result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "promotion-failed" }, { status: 500 });
   }
 }

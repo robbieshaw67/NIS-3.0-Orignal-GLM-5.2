@@ -2,7 +2,6 @@
 // Spec §9: "non-price stop: linked falsifier fires → exit signal regardless of chart"
 
 import { NextRequest, NextResponse } from "next/server";
-import { fireFalsifier } from "@/lib/promotion";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +12,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "falsifierId required" }, { status: 400 });
   }
   try {
+    const { fireFalsifier } = await import("@/lib/promotion");
     const result = await fireFalsifier({ falsifierId, firingEvidence, psActor });
     return NextResponse.json({ ok: true, ...result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "falsifier-fire-failed" }, { status: 500 });
   }
 }

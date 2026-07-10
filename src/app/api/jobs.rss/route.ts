@@ -2,17 +2,20 @@
 // Vercel Cron target: daily tier (Spec §6). Idempotent + resumable via watermarks.
 
 import { NextResponse } from "next/server";
-import { runRssAdapter } from "@/lib/adapters";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST() {
-  const result = await runRssAdapter();
-  return NextResponse.json(result);
+  try {
+    const { runRssAdapter } = await import("@/lib/adapters");
+    const result = await runRssAdapter();
+    return NextResponse.json(result);
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "rss-failed" }, { status: 500 });
+  }
 }
 
 export async function GET() {
-  const result = await runRssAdapter();
-  return NextResponse.json(result);
+  return POST();
 }

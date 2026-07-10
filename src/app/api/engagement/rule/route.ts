@@ -2,7 +2,6 @@
 // When all engagements for a thesis are ANSWERED, contrarian → SURVIVED.
 
 import { NextRequest, NextResponse } from "next/server";
-import { ruleOnEngagement } from "@/lib/promotion";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +15,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "psDecision must be ANSWERED|OPEN|CONCEDED" }, { status: 400 });
   }
   try {
+    const { ruleOnEngagement } = await import("@/lib/promotion");
     const result = await ruleOnEngagement({ engagementId, psDecision, reasoning, psActor });
     return NextResponse.json({ ok: true, ...result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "engagement-ruling-failed" }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
-// NIP v3.0 — VLM dual-route job endpoint (processes pending PENDING images)
+// NIP v3.0 — VLM dual-route job endpoint
+// Processes both fresh PENDING images and PENDING_RETRY failures.
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -9,8 +10,9 @@ export const maxDuration = 60;
 export async function POST() {
   try {
     const { runVLMDualRoute } = await import("@/lib/vlm-pipeline");
+    // Process both fresh PENDING images and PENDING_RETRY failures
     const pending = await db.ingestedImage.findMany({
-      where: { ratificationStatus: "PENDING_RETRY" },
+      where: { ratificationStatus: { in: ["PENDING", "PENDING_RETRY"] } },
       take: 5,
     });
     const counts = { processed: 0, mismatched: 0, pending: pending.length };

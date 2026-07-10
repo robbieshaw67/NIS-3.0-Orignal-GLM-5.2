@@ -22,11 +22,11 @@
       "schedule": "30 6 * * *"
     },
     {
-      "path": "/api/jobs.events",
+      "path": "/api/jobs.stance",
       "schedule": "0 7 * * *"
     },
     {
-      "path": "/api/jobs.events",
+      "path": "/api/jobs.contrarian",
       "schedule": "30 7 * * *"
     },
     {
@@ -34,12 +34,16 @@
       "schedule": "0 8 * * *"
     },
     {
-      "path": "/api/jobs.events",
+      "path": "/api/jobs.ladder",
       "schedule": "0 9 * * *"
     },
     {
-      "path": "/api/jobs.events",
+      "path": "/api/jobs.falsifiers",
       "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/jobs.verifications",
+      "schedule": "0 10 * * *"
     },
     {
       "path": "/api/jobs.vlm",

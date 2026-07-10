@@ -1,10 +1,12 @@
 // NIP v3.0 — Auth middleware (Spec §11, L13)
 // "auth in front of everything except a data-free /health"
 //
-// Basic auth via NIP_AUTH_USER / NIP_AUTH_PASS env vars (out-of-band, L11).
-// If the env vars are not set, auth is skipped in development (for the sandbox)
-// but MUST be set in production. The /api/health and /api/seed endpoints are
-// exempt (health is data-free; seed is dev-only).
+// Two auth paths:
+//   1. Basic auth via NIP_AUTH_USER / NIP_AUTH_PASS (for the operator UI + manual API)
+//   2. Bearer CRON_SECRET for /api/jobs.* paths (for Vercel cron — sends Bearer, not Basic)
+//
+// If no auth env vars are set, auth is skipped in development (sandbox convenience)
+// but MUST be set in production.
 
 import { NextRequest, NextResponse } from "next/server";
 
@@ -19,8 +21,8 @@ export function middleware(req: NextRequest) {
   // In development with no auth configured, allow all (sandbox convenience)
   const authUser = process.env.NIP_AUTH_USER;
   const authPass = process.env.NIP_AUTH_PASS;
+  const cronSecret = process.env.CRON_SECRET;
   if (!authUser || !authPass) {
-    // No auth configured — allow in dev, but log a warning
     if (process.env.NODE_ENV === "production") {
       return NextResponse.json(
         { ok: false, error: "NIP_AUTH_USER and NIP_AUTH_PASS must be set in production" },
@@ -30,8 +32,20 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check basic auth header
   const authHeader = req.headers.get("authorization");
+
+  // Path 2: Bearer CRON_SECRET for job endpoints (Vercel cron sends Bearer, not Basic)
+  if (cronSecret && (pathname.startsWith("/api/jobs.") || pathname === "/api/jobs.events")) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice("Bearer ".length);
+      if (token === cronSecret) {
+        return NextResponse.next();
+      }
+    }
+    // Fall through to Basic auth check (operator can also call job endpoints manually)
+  }
+
+  // Path 1: Basic auth for all other endpoints
   if (!authHeader || !authHeader.startsWith("Basic ")) {
     return NextResponse.json(
       { ok: false, error: "Authentication required" },

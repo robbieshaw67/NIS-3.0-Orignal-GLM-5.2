@@ -124,6 +124,10 @@ const deepExtractSchema = z.object({
   tickers: z.array(z.string()).default([]),
   entities: z.array(z.string()).default([]),
   confidence: z.enum(["CLEAN", "HEDGED", "AMBIGUOUS"]),
+  // L4: the LLM returns the date it extracted from the content. This gets
+  // clamped to fetchedAt so future-dated hallucinations are caught. Spec §5:
+  // "date bounds from parseDateBounds (no point-defaults, ever — L3/L4)."
+  date: z.string().optional(), // ISO date string extracted from the content
 });
 
 async function triageAndExtract(bodyText: string, authorId: string, rawContentId: string) {
@@ -157,13 +161,14 @@ async function triageAndExtract(bodyText: string, authorId: string, rawContentId
   // never be later than when we actually fetched it. This kills future-dated
   // LLM hallucinations (the exact failure L4 was written to prevent).
   const fetchedAt = new Date();
-  // In sandbox mode the mock doesn't return a date; use fetchedAt as the
-  // conservative bound. In production the LLM-extracted date goes here.
-  const extractedDate = (ext.data as any)?.date ? new Date((ext.data as any).date) : fetchedAt;
+  const extractedDate = ex.data.date ? new Date(ex.data.date) : fetchedAt;
   const dateLatest = clampDateLatest(extractedDate, fetchedAt);
   if (dateLatest < extractedDate) {
     await logClamp({ rawContentId, field: "dateLatest", from: extractedDate.toISOString(), to: dateLatest.toISOString() });
   }
+  // dateEarliest = the extracted date (conservative: the content was published
+  // no earlier than this date). dateLatest = clamped to fetchedAt.
+  const dateEarliest = extractedDate;
 
   // CP3 — sample verification: the verbatim quote must be locatable in raw.
   // If not, quarantine this source (L3: errors are never verdicts).
@@ -182,8 +187,8 @@ async function triageAndExtract(bodyText: string, authorId: string, rawContentId
       spanStart: span.start,
       spanEnd: span.end,
       spanConfidence: span ? "EXACT" : "FUZZY",
-      dateIso: fetchedAt,
-      dateEarliest: fetchedAt,
+      dateIso: extractedDate,
+      dateEarliest,
       dateLatest,
     },
   };

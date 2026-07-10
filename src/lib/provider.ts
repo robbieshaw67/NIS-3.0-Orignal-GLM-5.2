@@ -143,6 +143,7 @@ function mockComplete(req: CompletionRequest): CompletionResult {
       tickers: ["MU"],
       entities: ["Micron Technology"],
       confidence: "CLEAN",
+      date: new Date().toISOString().slice(0, 10), // L4: mock returns today's date
     },
     ADJUDICATE: { same: false, reason: "Mock adjudication" },
     ASSESS: { verdict: "OPEN", reasoning: "Mock assessment" },
@@ -327,7 +328,8 @@ Content:
   "keyInsight": "one-line paraphrase",
   "tickers": ["..."],
   "entities": ["canonical names"],
-  "confidence": "CLEAN"|"HEDGED"|"AMBIGUOUS"
+  "confidence": "CLEAN"|"HEDGED"|"AMBIGUOUS",
+  "date": "YYYY-MM-DD — the date the content was published or the claim was made (extract from the content; if unknown, omit)"
 }
 
 Content:

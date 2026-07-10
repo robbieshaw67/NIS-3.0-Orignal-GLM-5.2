@@ -130,7 +130,7 @@ const deepExtractSchema = z.object({
   date: z.string().optional(), // ISO date string extracted from the content
 });
 
-async function triageAndExtract(bodyText: string, authorId: string, rawContentId: string) {
+export async function triageAndExtract(bodyText: string, authorId: string, rawContentId: string) {
   // Two-pass: cheap triage, then strong extraction only above threshold
   const triage = await complete({
     taskType: "TRIAGE",
@@ -245,7 +245,7 @@ async function extractAndStoreImages(rawContentId: string, bodyText: string): Pr
   return created;
 }
 
-async function storeRaw(args: {
+export async function storeRaw(args: {
   url: string;
   title: string;
   bodyText: string;

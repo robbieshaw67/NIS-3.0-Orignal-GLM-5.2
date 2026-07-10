@@ -9,7 +9,7 @@ import * as React from "react";
 import {
   Upload, ImagePlus, Clipboard, RefreshCw, AlertTriangle,
   FileSearch, Settings2, History, Play, CheckCircle2, Database,
-  Layers3, Activity,
+  Layers3, Activity, Mic2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,8 +43,119 @@ const ADAPTER_JOBS = [
 function VisualIntake() {
   const [pastedUrl, setPastedUrl] = React.useState("");
   const [pastedText, setPastedText] = React.useState("");
+  const [transcriptUrl, setTranscriptUrl] = React.useState("");
+  const [transcriptChannel, setTranscriptChannel] = React.useState("");
   const [files, setFiles] = React.useState<string[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState<string | null>(null);
+  const [results, setResults] = React.useState<Array<{ type: string; ok: boolean; message: string }>>([]);
+
+  const addResult = (type: string, ok: boolean, message: string) => {
+    setResults(prev => [{ type, ok, message }, ...prev].slice(0, 5));
+  };
+
+  const handleUrl = async () => {
+    if (!pastedUrl) return;
+    setSubmitting("url");
+    try {
+      const r = await fetch("/api/ingest/url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: pastedUrl }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        addResult("URL", true, `Ingested: ${data.title || pastedUrl} (${data.bodyLength || 0} chars)`);
+        toast.success("URL fetched + extracted");
+      } else {
+        addResult("URL", false, data.error || "failed");
+        toast.error(`URL ingest failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      addResult("URL", false, e.message);
+      toast.error("URL ingest failed");
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const handleText = async () => {
+    if (!pastedText.trim()) return;
+    setSubmitting("text");
+    try {
+      const r = await fetch("/api/ingest/text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: pastedText }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        addResult("Text", true, `Extracted (${data.bodyLength} chars, ${data.dedup ? "dedup" : "new"})`);
+        toast.success("Text triaged + extracted");
+      } else {
+        addResult("Text", false, data.error || "failed");
+        toast.error(`Text ingest failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      addResult("Text", false, e.message);
+      toast.error("Text ingest failed");
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const handleTranscript = async () => {
+    if (!transcriptUrl) return;
+    setSubmitting("transcript");
+    try {
+      const r = await fetch("/api/ingest/transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: transcriptUrl, channel: transcriptChannel || undefined }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        addResult("Transcript", true, `${data.isYouTube ? "YouTube" : "Podcast"}: ${data.title} (${data.transcriptLength} chars)`);
+        toast.success("Transcript fetched + extracted");
+      } else {
+        addResult("Transcript", false, data.error || "failed");
+        toast.error(`Transcript ingest failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      addResult("Transcript", false, e.message);
+      toast.error("Transcript ingest failed");
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const handleDrop = async (droppedFiles: File[]) => {
+    for (const file of droppedFiles) {
+      setFiles(prev => [...prev, file.name]);
+      // Convert to base64 and send to image ingestion
+      try {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const base64 = reader.result as string;
+          const r = await fetch("/api/images/ingest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64: base64, processImmediately: true }),
+          });
+          const data = await r.json();
+          if (data.ok) {
+            addResult("Image", true, `${file.name} → ${data.dedup ? "dedup (virality " + data.viralityCount + ")" : "new, VLM processed"}`);
+            toast.success(`Image ingested: ${file.name}`);
+          } else {
+            addResult("Image", false, `${file.name}: ${data.error}`);
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch (e: any) {
+        addResult("Image", false, `${file.name}: ${e.message}`);
+      }
+    }
+  };
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -54,19 +165,27 @@ function VisualIntake() {
         <Badge variant="outline" className="text-[10px] h-4">VLM dual-route</Badge>
       </div>
 
+      {/* Image drop zone */}
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          const dropped = Array.from(e.dataTransfer.files).map(f => f.name);
-          setFiles(prev => [...prev, ...dropped]);
+          handleDrop(Array.from(e.dataTransfer.files));
         }}
         className={cn(
-          "border-2 border-dashed rounded-lg p-6 text-center transition-colors",
-          dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30",
+          "border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer",
+          dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-muted-foreground/50",
         )}
+        onClick={() => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.multiple = true;
+          input.accept = "image/*";
+          input.onchange = () => handleDrop(Array.from(input.files ?? []));
+          input.click();
+        }}
       >
         <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
         <p className="text-xs text-muted-foreground">
@@ -90,17 +209,55 @@ function VisualIntake() {
 
       <Separator className="my-3" />
 
+      {/* YouTube / Podcast URL */}
+      <div className="space-y-2">
+        <div className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+          <Mic2 className="h-3 w-3" /> YouTube / Podcast URL
+        </div>
+        <Input
+          placeholder="https://youtube.com/watch?v=… or podcast URL"
+          value={transcriptUrl}
+          onChange={(e) => setTranscriptUrl(e.target.value)}
+          className="h-8 text-xs"
+        />
+        <Input
+          placeholder="channel handle (optional, e.g. semi_analysis)"
+          value={transcriptChannel}
+          onChange={(e) => setTranscriptChannel(e.target.value)}
+          className="h-8 text-xs"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs w-full"
+          disabled={!transcriptUrl || submitting === "transcript"}
+          onClick={handleTranscript}
+        >
+          {submitting === "transcript" ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : <Mic2 className="h-3 w-3 mr-1" />}
+          {submitting === "transcript" ? "Fetching…" : "Fetch transcript + extract"}
+        </Button>
+      </div>
+
+      <Separator className="my-3" />
+
       {/* URL deep-examine */}
       <div className="space-y-2">
         <div className="text-[11px] font-medium text-muted-foreground">Deep-examine URL</div>
         <Input
-          placeholder="https://…"
+          placeholder="https://… (article, blog post, press release)"
           value={pastedUrl}
           onChange={(e) => setPastedUrl(e.target.value)}
           className="h-8 text-xs"
         />
-        <Button size="sm" variant="outline" className="h-7 text-xs w-full" disabled={!pastedUrl}>
-          <FileSearch className="h-3 w-3 mr-1" /> Fetch + extract
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs w-full"
+          disabled={!pastedUrl || submitting === "url"}
+          onClick={handleUrl}
+        >
+          {submitting === "url" ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
+          {submitting === "url" ? "Fetching…" : "Fetch + extract"}
         </Button>
       </div>
 
@@ -117,10 +274,34 @@ function VisualIntake() {
           onChange={(e) => setPastedText(e.target.value)}
           className="text-xs min-h-[80px]"
         />
-        <Button size="sm" variant="outline" className="h-7 text-xs w-full" disabled={!pastedText.trim()}>
-          Triage → extract
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs w-full"
+          disabled={!pastedText.trim() || submitting === "text"}
+          onClick={handleText}
+        >
+          {submitting === "text" ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : <Clipboard className="h-3 w-3 mr-1" />}
+          {submitting === "text" ? "Extracting…" : "Triage → extract"}
         </Button>
       </div>
+
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="mt-3 pt-3 border-t space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Recent ingestions</div>
+          {results.map((r, i) => (
+            <div key={i} className={cn(
+              "text-[10px] rounded px-2 py-1 flex items-center gap-1.5",
+              r.ok ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 text-red-700 dark:text-red-400",
+            )}>
+              {r.ok ? <CheckCircle2 className="h-2.5 w-2.5 shrink-0" /> : <AlertTriangle className="h-2.5 w-2.5 shrink-0" />}
+              <span className="font-mono">{r.type}</span>
+              <span className="truncate">{r.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

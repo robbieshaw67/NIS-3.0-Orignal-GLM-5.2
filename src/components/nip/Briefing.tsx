@@ -8,7 +8,7 @@
 import * as React from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
-  Activity, AlertOctagon, Bell, CheckCircle2, ClipboardList, Inbox,
+  Activity, AlertOctagon, Bell, CheckCircle2, ClipboardList, Clock, Inbox,
   RefreshCw, TrendingUp, TrendingDown, Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,22 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { CauseChip, EmptyState, ReconLine, StagedDecision } from "./grammar";
 import { cn } from "@/lib/utils";
+
+// The full 12-job registry from the spec (Design §6)
+const JOB_REGISTRY = [
+  { id: "adapters:rss",          desc: "Watermark-incremental RSS" },
+  { id: "adapters:x",            desc: "Nitter scraper + threads + echo edges" },
+  { id: "adapters:transcripts",  desc: "yt-dlp + Whisper fallback" },
+  { id: "adapters:anchors",      desc: "TrendForce + earnings + capex parsers" },
+  { id: "pipeline:events",       desc: "Deterministic blocking + LLM adjudication" },
+  { id: "pipeline:stance",       desc: "Exponential decay + change classification" },
+  { id: "pipeline:contrarian",   desc: "Engagement detection + PS queue" },
+  { id: "monitor:falsifiers",    desc: "Deterministic screen + consequences" },
+  { id: "engine:ladder",         desc: "Gate computation + stage transitions" },
+  { id: "monitor:verifications", desc: "Passed events → claim resolution" },
+  { id: "ops:scorecard",         desc: "Weekly checkpoint 11" },
+  { id: "ops:backup",            desc: "Nightly off-box dump + restore drill" },
+];
 
 interface BriefingProps {
   adapterHealth: any[];
@@ -206,31 +222,42 @@ export function DeltaBriefing({ adapterHealth, recentJobs, queue, counts, onReso
             <NeedsYouQueue queue={queue} onResolve={onResolveQueue} />
           </div>
 
-          {/* Recent job runs */}
+          {/* Job registry — all 12 jobs from the spec (Design §6) */}
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold">Recent job runs</h3>
-              <span className="text-[10px] text-muted-foreground">idempotent · resumable · all write JobRun rows</span>
+              <h3 className="text-sm font-semibold">Job registry</h3>
+              <span className="text-[10px] text-muted-foreground">12 jobs · idempotent · resumable · all write JobRun rows (L13)</span>
             </div>
-            <div className="space-y-1.5">
-              {recentJobs.slice(0, 8).map(j => (
-                <div key={j.id} className="flex items-center justify-between text-[11px] rounded bg-muted/20 px-2 py-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px]">{j.job}</span>
-                    {j.status === "DONE" ? (
-                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                    ) : j.status === "FAILED" ? (
-                      <AlertOctagon className="h-3 w-3 text-red-500" />
-                    ) : (
-                      <RefreshCw className="h-3 w-3 text-amber-500 animate-spin" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+              {JOB_REGISTRY.map(jr => {
+                const lastRun = recentJobs.find(j => j.job === jr.id);
+                return (
+                  <div key={jr.id} className="flex items-center justify-between text-[11px] rounded border bg-muted/20 px-2 py-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {lastRun ? (
+                        lastRun.status === "DONE" ? (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                        ) : lastRun.status === "FAILED" ? (
+                          <AlertOctagon className="h-3 w-3 text-red-500 shrink-0" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 text-amber-500 animate-spin shrink-0" />
+                        )
+                      ) : (
+                        <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-mono text-[10px] truncate">{jr.id}</div>
+                        <div className="text-[9px] text-muted-foreground truncate">{jr.desc}</div>
+                      </div>
+                    </div>
+                    {lastRun && (
+                      <span className="text-[9px] text-muted-foreground tabular-nums shrink-0 ml-1">
+                        {Object.entries(lastRun.counts as any ?? {}).slice(0, 2).map(([k,v]) => `${k}:${v}`).join(" ")}
+                      </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                    <span>{formatDistanceToNow(new Date(j.startedAt), { addSuffix: true })}</span>
-                    <span className="tabular-nums">{Object.entries(j.counts as any ?? {}).slice(0, 3).map(([k,v]) => `${k}:${v}`).join(" ")}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

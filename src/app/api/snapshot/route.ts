@@ -64,7 +64,7 @@ export async function GET() {
 
   // ── Health strip (adapters + recent job runs) ──
   const adapterHealth = await db.adapterHealth.findMany({ orderBy: { adapter: "asc" } });
-  const recentJobs = await db.jobRun.findMany({ orderBy: { startedAt: "desc" }, take: 12 });
+  const recentJobs = await db.jobRun.findMany({ orderBy: { startedAt: "desc" }, take: 24 });
 
   // ── Queue (the Needs-You inbox) ──
   const queue = await db.queueItem.findMany({

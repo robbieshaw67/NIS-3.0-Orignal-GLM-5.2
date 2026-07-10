@@ -999,15 +999,18 @@ async function main() {
   // ─────────────────────────────────────────────────────────────────
   console.log("› Seeding job runs...");
   const jobs = [
-    { job: "adapters:rss",        startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { fetched: 47, new: 3, deduped: 44 } },
-    { job: "adapters:transcripts",startedAt: daysAgo(1), finishedAt: daysAgo(1), status: "DONE", counts: { fetched: 4, new: 1, deduped: 3 } },
-    { job: "adapters:anchors",    startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { fetched: 6, new: 1, deduped: 5 } },
-    { job: "pipeline:events",     startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { clustered: 4, new_events: 1, echoes: 3 } },
-    { job: "pipeline:stance",     startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { updated: 12, changes: 1, alerts: 1 } },
-    { job: "monitor:falsifiers",  startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { screened: 23, hits: 0, fired: 0 } },
-    { job: "engine:ladder",       startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { reevaluated: 65, promoted: 0, demoted: 0 } },
-    { job: "ops:scorecard",       startedAt: daysAgo(7), finishedAt: daysAgo(7), status: "DONE", counts: { coverage_pct: 88, discard_rate: 0.12, queue_latency_hrs: 4.2 } },
-    { job: "ops:backup",          startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { bytes: 47_000_000, restore_drill: "passed" } },
+    { job: "adapters:rss",          startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { fetched: 47, new: 3, deduped: 44, extracted: 2, quarantined: 1 } },
+    { job: "adapters:x",            startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { fetched: 12, new: 5, deduped: 7, threads: 2, rateLimited: 0 } },
+    { job: "adapters:transcripts",  startedAt: daysAgo(1), finishedAt: daysAgo(1), status: "DONE", counts: { fetched: 4, new: 1, deduped: 3, whisperFallback: 0 } },
+    { job: "adapters:anchors",      startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { fetched: 6, new: 1, deduped: 5, revisions: 0 } },
+    { job: "pipeline:events",       startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { clustered: 4, new_events: 1, echoes: 3 } },
+    { job: "pipeline:stance",       startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { updated: 12, changes: 1, alerts: 1, silence: 0 } },
+    { job: "pipeline:contrarian",   startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { detected: 5, staged: 5, synthetic: 0, alerts: 1 } },
+    { job: "monitor:falsifiers",    startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { screened: 23, hits: 0, fired: 0 } },
+    { job: "engine:ladder",         startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { reevaluated: 65, promoted: 0, demoted: 0 } },
+    { job: "monitor:verifications", startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { checked: 0, resolved: 0, calibrationUpdates: 0, falsifierAssessed: 0 } },
+    { job: "ops:scorecard",         startedAt: daysAgo(7), finishedAt: daysAgo(7), status: "DONE", counts: { coverage_pct: 88, discard_rate: 0.12, verification_pass_rate: 0, queue_latency_hrs: 4.2, attribution_flags: 1 } },
+    { job: "ops:backup",            startedAt: daysAgo(0), finishedAt: daysAgo(0), status: "DONE", counts: { tables_dumped: 18, rows_dumped: 634, bytes: 325632, restore_drill: "passed" } },
   ];
   for (const j of jobs) {
     await db.jobRun.create({ data: { ...j, counts: j.counts as any } });

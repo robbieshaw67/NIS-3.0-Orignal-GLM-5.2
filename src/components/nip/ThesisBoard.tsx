@@ -29,7 +29,7 @@ import {
   CompositionBadge, CountdownChip, DirectionArrow, EvidenceLink,
   StagePill, StagedDecision,
 } from "./grammar";
-import { canPromote, computeCounters, FALLBACK_THRESHOLDS } from "@/lib/gates";
+import { canPromote } from "@/lib/gates";
 import { cn } from "@/lib/utils";
 
 function nextStage(stage: string): string {
@@ -108,11 +108,19 @@ function ThesisCard({ thesis, verificationEvents, onRuleEngagement, onPromote }:
   const [promoting, setPromoting] = React.useState(false);
   const verification = verificationEvents.find(v => v.id === thesis.verificationEventId);
 
-  // distance-to-promotion: compute gate result
-  const counters = computeCounters(
-    { independentEvents: thesis.independentEvents, primaryIntegrityEvents: thesis.primaryIntegrityEvents },
-    [{ id: "e1", independentCount: thesis.independentEvents, authorBreadth: thesis.distinctOrgs }],
-  );
+  // distance-to-promotion: use the thesis's stored counter values (computed by
+  // the ladder job / promotion pipeline with real Author org/class data loaded).
+  // The board doesn't have author data loaded, so we pass the stored values
+  // directly to the gate to show an accurate "eligible/missing" indicator.
+  // The server-side attemptPromote() recomputes from scratch with full author data.
+  const counters = {
+    orgAwareEffectiveN: thesis.effectiveN,
+    distinctOrgs: thesis.distinctOrgs,
+    distinctClasses: thesis.epistemicClassCount,
+    independents: thesis.independentEvents,
+    independentEvents: thesis.independentEvents,
+    primaryIntegrityEvents: thesis.primaryIntegrityEvents,
+  };
   const gateCtx = {
     contrarianStatus: thesis.contrarianStatus,
     engagementSearchLoggedAt: thesis.engagementSearchLoggedAt ? new Date(thesis.engagementSearchLoggedAt) : null,

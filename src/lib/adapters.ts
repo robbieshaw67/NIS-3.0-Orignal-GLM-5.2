@@ -153,11 +153,16 @@ async function triageAndExtract(bodyText: string, authorId: string, rawContentId
 
   // Span anchor — locate the verbatim quote in the stored body
   const span = locateInBody(bodyText, ex.data.verbatimQuote);
-  // L4: clamp dateLatest to fetchedAt
+  // L4: clamp dateLatest to fetchedAt — the extracted date (from content) must
+  // never be later than when we actually fetched it. This kills future-dated
+  // LLM hallucinations (the exact failure L4 was written to prevent).
   const fetchedAt = new Date();
-  const dateLatest = clampDateLatest(fetchedAt, fetchedAt);
-  if (dateLatest < fetchedAt) {
-    await logClamp({ rawContentId, field: "dateLatest", from: fetchedAt.toISOString(), to: dateLatest.toISOString() });
+  // In sandbox mode the mock doesn't return a date; use fetchedAt as the
+  // conservative bound. In production the LLM-extracted date goes here.
+  const extractedDate = (ext.data as any)?.date ? new Date((ext.data as any).date) : fetchedAt;
+  const dateLatest = clampDateLatest(extractedDate, fetchedAt);
+  if (dateLatest < extractedDate) {
+    await logClamp({ rawContentId, field: "dateLatest", from: extractedDate.toISOString(), to: dateLatest.toISOString() });
   }
 
   // CP3 — sample verification: the verbatim quote must be locatable in raw.

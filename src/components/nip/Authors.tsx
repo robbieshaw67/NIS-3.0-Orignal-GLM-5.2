@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AuthorChip, CompositionBadge, DirectionArrow, EvidenceLink } from "./grammar";
+import { getAuthorityWeight, hasAuthorityFloor } from "@/lib/author";
 import { cn } from "@/lib/utils";
 
 interface AuthorsProps {
@@ -98,13 +99,13 @@ function AuthorCard({ author }: { author: any }) {
       <CompositionBadge
         tone="default"
         parts={[
-          { label: "authorityWeight", value: author.authorityWeight?.toFixed(2) ?? "1.00", tone: author.forecastsResolved < 5 ? "warn" : "good" },
+          { label: "authorityWeight", value: getAuthorityWeight(author).toFixed(2), tone: hasAuthorityFloor(author) ? "good" : "warn" },
           ...(author.brierScore != null ? [{ label: "Brier", value: author.brierScore.toFixed(2) }] : []),
         ]}
       />
-      {author.forecastsResolved < 5 && (
+      {!hasAuthorityFloor(author) && (
         <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
-          Floor rule: ≥5 resolved required. Readable via accessor only.
+          Floor rule: ≥5 resolved required (has {author.forecastsResolved}). Readable via accessor only.
         </p>
       )}
 

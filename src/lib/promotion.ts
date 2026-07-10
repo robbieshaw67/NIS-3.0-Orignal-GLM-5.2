@@ -17,7 +17,7 @@
 //   - book-talk discount into stance aggregation (audit-noted 30-min gap)
 
 import { db } from "./db";
-import { canPromote, computeCounters, FALLBACK_THRESHOLDS, type GateContext } from "./gates";
+import { canPromote, computeCounters, loadThresholds, type GateContext } from "./gates";
 
 // ─────────────────────────────────────────────────────────────────────
 // 1. PS engagement ruling → if all engagements ANSWERED, contrarian SURVIVED
@@ -115,8 +115,24 @@ export async function attemptPromote(args: {
   // Load linked events for counter computation
   const events = await db.informationEvent.findMany({
     where: { id: { in: (thesis.eventIds as string[]) ?? [] } },
-    include: { sources: true },
+    include: { sources: { include: { rawContent: true } } },
   });
+
+  // L7: load actual Author org + epistemic class for each source's author.
+  // The gate's distinctOrgs/distinctClasses counters depend on this — passing
+  // null here (the previous bug) made every promotion fail in production.
+  const authorIds = new Set<string>();
+  for (const e of events) {
+    for (const s of e.sources) {
+      authorIds.add(s.authorId);
+      if (s.carrierAuthorId) authorIds.add(s.carrierAuthorId);
+    }
+  }
+  const authors = await db.author.findMany({
+    where: { id: { in: Array.from(authorIds) } },
+    select: { id: true, orgAffiliation: true, epistemicClass: true },
+  });
+  const authorMap = new Map(authors.map(a => [a.id, a]));
 
   // Build counters (org-aware effectiveN via inverse Herfindahl)
   const counters = computeCounters(
@@ -128,11 +144,14 @@ export async function attemptPromote(args: {
       id: e.id,
       independentCount: e.independentCount,
       authorBreadth: e.authorBreadth,
-      members: e.sources.map(s => ({
-        authorId: s.authorId,
-        orgAffiliation: null, // resolved at the Author level in production
-        epistemicClass: null,
-      })),
+      members: e.sources.map(s => {
+        const author = authorMap.get(s.authorId);
+        return {
+          authorId: s.authorId,
+          orgAffiliation: author?.orgAffiliation ?? null,
+          epistemicClass: author?.epistemicClass ?? null,
+        };
+      }),
     })),
   );
 
@@ -146,7 +165,10 @@ export async function attemptPromote(args: {
     priceJoined: true,
   };
 
-  const gate = canPromote(thesis.stage, counters, ctx);
+  // Load thresholds from the GateThreshold table (PS-editable, versioned).
+  // Spec Design §5: "never constants in code."
+  const thresholds = await loadThresholds();
+  const gate = canPromote(thesis.stage, counters, ctx, thresholds);
   if (!gate.ok) {
     return { promoted: false, from: thesis.stage, to: thesis.stage, missing: gate.missing };
   }

@@ -99,6 +99,48 @@ export const FALLBACK_THRESHOLDS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────
+// Load thresholds from the GateThreshold table (PS-editable, versioned).
+// Spec Design §5: "Threshold values live in a config table, PS-editable,
+// versioned — never constants in code."
+// Falls back to FALLBACK_THRESHOLDS if the table is empty or unreachable.
+// ─────────────────────────────────────────────────────────────────────
+
+export async function loadThresholds(): Promise<typeof FALLBACK_THRESHOLDS> {
+  try {
+    const { db } = await import("./db");
+    const rows = await db.gateThreshold.findMany();
+    if (rows.length === 0) return FALLBACK_THRESHOLDS;
+
+    const get = (key: string) => rows.find(r => r.key === key)?.value;
+    return {
+      OBSERVATION_TO_HYPOTHESIS: {
+        minEvents: get("OBSERVATION_TO_HYPOTHESIS.minEvents") ?? FALLBACK_THRESHOLDS.OBSERVATION_TO_HYPOTHESIS.minEvents,
+        minEffectiveN: get("OBSERVATION_TO_HYPOTHESIS.minEffectiveN") ?? FALLBACK_THRESHOLDS.OBSERVATION_TO_HYPOTHESIS.minEffectiveN,
+        trailingDays: get("OBSERVATION_TO_HYPOTHESIS.trailingDays") ?? FALLBACK_THRESHOLDS.OBSERVATION_TO_HYPOTHESIS.trailingDays,
+      },
+      HYPOTHESIS_TO_VALIDATED: {
+        minIndependentEvents: get("HYPOTHESIS_TO_VALIDATED.minIndependentEvents") ?? FALLBACK_THRESHOLDS.HYPOTHESIS_TO_VALIDATED.minIndependentEvents,
+        minPrimaryIntegrity: get("HYPOTHESIS_TO_VALIDATED.minPrimaryIntegrity") ?? FALLBACK_THRESHOLDS.HYPOTHESIS_TO_VALIDATED.minPrimaryIntegrity,
+        minEffectiveN: get("HYPOTHESIS_TO_VALIDATED.minEffectiveN") ?? FALLBACK_THRESHOLDS.HYPOTHESIS_TO_VALIDATED.minEffectiveN,
+        minDistinctOrgs: get("HYPOTHESIS_TO_VALIDATED.minDistinctOrgs") ?? FALLBACK_THRESHOLDS.HYPOTHESIS_TO_VALIDATED.minDistinctOrgs,
+        minDistinctClasses: get("HYPOTHESIS_TO_VALIDATED.minDistinctClasses") ?? FALLBACK_THRESHOLDS.HYPOTHESIS_TO_VALIDATED.minDistinctClasses,
+        minArmedFalsifiers: get("HYPOTHESIS_TO_VALIDATED.minArmedFalsifiers") ?? FALLBACK_THRESHOLDS.HYPOTHESIS_TO_VALIDATED.minArmedFalsifiers,
+      },
+      VALIDATED_TO_ACTIONABLE: {
+        requireVerificationEvent: get("VALIDATED_TO_ACTIONABLE.requireVerificationEvent") ?? 1,
+        contrarianMustSurvive: get("VALIDATED_TO_ACTIONABLE.contrarianMustSurvive") ?? 1,
+        crowdingMustBeClear: get("VALIDATED_TO_ACTIONABLE.crowdingMustBeClear") ?? 1,
+        allFalsifiersArmed: get("VALIDATED_TO_ACTIONABLE.allFalsifiersArmed") ?? 1,
+        noUnreviewedReversing14d: get("VALIDATED_TO_ACTIONABLE.noUnreviewedReversing14d") ?? 1,
+        requirePriceJoin: get("VALIDATED_TO_ACTIONABLE.requirePriceJoin") ?? 0,
+      } as any,
+    };
+  } catch {
+    return FALLBACK_THRESHOLDS;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // canPromote — demotion checked first, then promotion
 // ─────────────────────────────────────────────────────────────────────
 

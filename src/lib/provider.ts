@@ -202,6 +202,17 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
     const mock = mockComplete(req);
     mock.latencyMs = Date.now() - t0;
     cache.set(cacheKey, { raw: mock.raw, tokensIn: mock.tokensIn, tokensOut: mock.tokensOut });
+    // Log the call (mock) so the ops panel has data even in sandbox mode
+    logProviderCall({
+      taskType: req.taskType,
+      promptVersion: req.prompt.id,
+      provider: "mock",
+      model: "sandbox-mock",
+      tokens: mock.tokensIn + mock.tokensOut,
+      costUsd: 0,
+      latencyMs: mock.latencyMs,
+      cacheHit: false,
+    }).catch(() => {}); // fire-and-forget — never block on logging
     return mock;
   }
 
@@ -239,14 +250,29 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
     ? req.schema.parse(clean)
     : { _parseError: true, _raw: raw };
 
+  const latencyMs = Date.now() - t0;
+  const costUsd = estimateCost(cfg.model, tokensIn, tokensOut);
+
+  // Log the call so the ops panel and two-pass economics have data
+  logProviderCall({
+    taskType: req.taskType,
+    promptVersion: req.prompt.id,
+    provider: cfg.provider,
+    model: cfg.model,
+    tokens: tokensIn + tokensOut,
+    costUsd,
+    latencyMs,
+    cacheHit: false,
+  }).catch(() => {}); // fire-and-forget
+
   return {
     data,
     raw,
     cacheHit: false,
     tokensIn,
     tokensOut,
-    latencyMs: Date.now() - t0,
-    costUsd: estimateCost(cfg.model, tokensIn, tokensOut),
+    latencyMs,
+    costUsd,
     strippedFields: stripped,
   };
 }

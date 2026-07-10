@@ -85,6 +85,20 @@ model AdapterHealth {
   updatedAt    DateTime @updatedAt
 }
 
+// Per-source watermarks — kill the "re-fetch the world daily" failure class.
+// Each adapter maintains its own cursor shape (last GUID for RSS, last tweet ID for X, etc.)
+model Watermark {
+  id              String   @id @default(cuid())
+  adapterType     String   // RSS | X | TRANSCRIPT | ANCHOR
+  sourceKey       String   // handle | feedUrl | channelUrl | org
+  lastProcessedAt DateTime @default(now())
+  lastGuid        String?  // RSS: last pubDate/GUID
+  lastExternalId  String?  // X: last tweet ID; TRANSCRIPT: last video ID
+  cursor          Json     @default("\"{}\"") // adapter-specific opaque cursor
+  @@unique([adapterType, sourceKey])
+  @@index([adapterType])
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // M3 — Extraction (Source = extracted insight)
 // ─────────────────────────────────────────────────────────────────────

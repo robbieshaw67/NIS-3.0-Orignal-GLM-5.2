@@ -5,13 +5,18 @@
 // counter strip / contrarian chip / falsifier lights / verification countdown / divergence badge
 // Evidence drawer in place (events, engagements two-column, stage history with snapshots)
 // Distance-to-promotion sorting.
+//
+// Now wired (sequence step 4 completion):
+//   - PS engagement ruling (ANSWERED/OPEN/CONCEDED) per engagement (L10)
+//   - When all engagements ANSWERED → contrarian SURVIVED → eligible for promotion
+//   - PS-gated promotion button → ACTIONABLE → auto PAPER position (Spec §9)
 
 import * as React from "react";
 import { format } from "date-fns";
 import {
   ShieldCheck, ShieldAlert, Crosshair, Flame, Eye, History,
   ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, XCircle,
-  ArrowUpRight, ArrowDownRight, FileWarning, Sparkles,
+  ArrowUpRight, ArrowDownRight, FileWarning, Sparkles, ArrowUpCircle, RefreshCw,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +31,12 @@ import {
 } from "./grammar";
 import { canPromote, computeCounters, FALLBACK_THRESHOLDS } from "@/lib/gates";
 import { cn } from "@/lib/utils";
+
+function nextStage(stage: string): string {
+  const ladder = ["OBSERVATION", "HYPOTHESIS", "VALIDATED", "ACTIONABLE"];
+  const i = ladder.indexOf(stage);
+  return i >= 0 && i < ladder.length - 1 ? ladder[i + 1] : stage;
+}
 
 const LADDER = [
   { stage: "OBSERVATION", label: "Observation", color: "border-slate-500/30 bg-slate-500/5" },
@@ -87,8 +98,14 @@ function FalsifierLights({ armed, partial, fired = 0 }: { armed: number; partial
 }
 
 // ── thesis card ──
-function ThesisCard({ thesis, verificationEvents }: { thesis: any; verificationEvents: any[] }) {
+function ThesisCard({ thesis, verificationEvents, onRuleEngagement, onPromote }: {
+  thesis: any;
+  verificationEvents: any[];
+  onRuleEngagement?: (engagementId: string, decision: "ANSWERED" | "OPEN" | "CONCEDED") => Promise<void>;
+  onPromote?: (thesisId: string) => Promise<void>;
+}) {
   const [open, setOpen] = React.useState(false);
+  const [promoting, setPromoting] = React.useState(false);
   const verification = verificationEvents.find(v => v.id === thesis.verificationEventId);
 
   // distance-to-promotion: compute gate result
@@ -106,6 +123,15 @@ function ThesisCard({ thesis, verificationEvents }: { thesis: any; verificationE
     priceJoined: true,
   };
   const gate = canPromote(thesis.stage, counters, gateCtx);
+
+  const handlePromote = async () => {
+    setPromoting(true);
+    try {
+      await onPromote?.(thesis.id);
+    } finally {
+      setPromoting(false);
+    }
+  };
 
   return (
     <div className="rounded-lg border bg-card overflow-hidden">
@@ -150,18 +176,36 @@ function ThesisCard({ thesis, verificationEvents }: { thesis: any; verificationE
           )}
         </div>
 
-        {/* distance-to-promotion summary */}
+        {/* distance-to-promotion summary + PS-gated promote button */}
         {thesis.stage !== "ACTIONABLE" && (
-          <div className="mt-2 text-[10px] text-muted-foreground">
-            {gate.ok ? (
-              <span className="text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> eligible for promotion
-              </span>
-            ) : (
-              <span>
-                Missing: {gate.missing.slice(0, 2).join(", ")}{gate.missing.length > 2 ? ` +${gate.missing.length - 2}` : ""}
-              </span>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="text-[10px] text-muted-foreground flex-1 min-w-0">
+              {gate.ok ? (
+                <span className="text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> eligible for promotion
+                </span>
+              ) : (
+                <span>
+                  Missing: {gate.missing.slice(0, 2).join(", ")}{gate.missing.length > 2 ? ` +${gate.missing.length - 2}` : ""}
+                </span>
+              )}
+            </div>
+            {gate.ok && onPromote && (
+              <Button
+                size="sm"
+                className="h-6 text-[10px] px-2 bg-emerald-600 hover:bg-emerald-700 shrink-0"
+                disabled={promoting}
+                onClick={handlePromote}
+              >
+                {promoting ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <ArrowUpCircle className="h-3 w-3 mr-1" />}
+                {promoting ? "Promoting" : `Promote → ${nextStage(thesis.stage)}`}
+              </Button>
             )}
+          </div>
+        )}
+        {thesis.stage === "ACTIONABLE" && (
+          <div className="mt-2 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400">
+            <Sparkles className="h-3 w-3" /> ACTIONABLE — paper ledger auto-activated
           </div>
         )}
       </div>
@@ -176,25 +220,59 @@ function ThesisCard({ thesis, verificationEvents }: { thesis: any; verificationE
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="p-3 space-y-3 text-xs">
-            {/* engagements two-column */}
+            {/* engagements two-column — PS ruling now wired */}
             {thesis.engagements && thesis.engagements.length > 0 && (
               <div>
-                <h4 className="text-[11px] font-medium text-muted-foreground mb-1.5">Engagements</h4>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="text-[11px] font-medium text-muted-foreground">Engagements</h4>
+                  <span className="text-[10px] text-muted-foreground">
+                    {thesis.engagements.filter((e: any) => e.psDecision).length}/{thesis.engagements.length} ruled
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                   {thesis.engagements.slice(0, 6).map((e: any) => (
                     <div key={e.id} className="rounded border bg-muted/20 p-2 text-[11px]">
                       <div className="flex items-center justify-between mb-1">
                         <Badge variant="outline" className="text-[9px] h-3.5">{e.engagementType.replace("_", " ")}</Badge>
                         {e.synthetic && <Badge variant="outline" className="text-[9px] h-3.5 bg-purple-500/10">SYNTHETIC</Badge>}
+                        {e.psDecision && (
+                          <Badge variant="outline" className={cn(
+                            "text-[9px] h-3.5",
+                            e.psDecision === "ANSWERED" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+                            e.psDecision === "CONCEDED" && "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30",
+                          )}>
+                            PS: {e.psDecision}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-muted-foreground leading-tight">{e.reasoning}</p>
                       {e.proposedStatus && !e.psDecision && (
-                        <div className="mt-1.5">
-                          <StagedDecision
-                            proposal={`Engagement status: ${e.proposedStatus}`}
-                            reasoning="Auto-staged from LLM ANSWERED/OPEN/CONCEDED assessment — PS must rule."
-                            status="PENDING"
-                          />
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground">Rule:</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-5 text-[9px] px-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                            onClick={() => onRuleEngagement?.(e.id, "ANSWERED")}
+                          >
+                            Answered
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-5 text-[9px] px-1.5 bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30 hover:bg-red-500/20"
+                            onClick={() => onRuleEngagement?.(e.id, "CONCEDED")}
+                          >
+                            Conceded
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-5 text-[9px] px-1.5"
+                            onClick={() => onRuleEngagement?.(e.id, "OPEN")}
+                          >
+                            Open
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -276,7 +354,12 @@ function ThesisCard({ thesis, verificationEvents }: { thesis: any; verificationE
   );
 }
 
-export function ThesisBoard({ theses, verificationEvents }: { theses: any[]; verificationEvents: any[] }) {
+export function ThesisBoard({ theses, verificationEvents, onRuleEngagement, onPromote }: {
+  theses: any[];
+  verificationEvents: any[];
+  onRuleEngagement?: (engagementId: string, decision: "ANSWERED" | "OPEN" | "CONCEDED") => Promise<void>;
+  onPromote?: (thesisId: string) => Promise<void>;
+}) {
   const byStage = LADDER.map(col => ({
     ...col,
     theses: theses.filter(t => t.stage === col.stage),
@@ -314,7 +397,13 @@ export function ThesisBoard({ theses, verificationEvents }: { theses: any[]; ver
                 {/* cards */}
                 <div className="space-y-2">
                   {col.theses.map(t => (
-                    <ThesisCard key={t.id} thesis={t} verificationEvents={verificationEvents} />
+                    <ThesisCard
+                      key={t.id}
+                      thesis={t}
+                      verificationEvents={verificationEvents}
+                      onRuleEngagement={onRuleEngagement}
+                      onPromote={onPromote}
+                    />
                   ))}
                   {col.theses.length === 0 && (
                     <div className="text-center text-[11px] text-muted-foreground italic py-8">

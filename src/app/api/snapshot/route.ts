@@ -97,10 +97,26 @@ export async function GET() {
     rawContents: await db.rawContent.count(),
     armedFalsifiers: await db.falsifier.count({ where: { status: "ARMED" } }),
     partialFalsifiers: await db.falsifier.count({ where: { status: "PARTIAL" } }),
+    firedFalsifiers: await db.falsifier.count({ where: { status: "FIRED" } }),
+    degradedSources: await db.source.count({ where: { degradedExtraction: true } }),
+    watermarks: await db.watermark.count(),
+    paperPositions: await db.position.count({ where: { ledgerType: "PAPER" } }),
+    actualPositions: await db.position.count({ where: { ledgerType: "ACTUAL" } }),
+    exitReviewPositions: await db.position.count({ where: { status: "EXIT_REVIEW" } }),
   };
 
   // ── Audit log (recent) ──
   const auditLog = await db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 20 });
+
+  // ── Falsifiers (for the falsifier-fire UI) ──
+  const falsifiers = await db.falsifier.findMany({
+    where: { status: { in: ["ARMED", "PARTIAL", "FIRED"] } },
+    orderBy: [{ status: "asc" }, { armedAt: "desc" }],
+    take: 30,
+  });
+
+  // ── Watermarks (for the Ingestion Console — shows adapter progress) ──
+  const watermarks = await db.watermark.findMany({ orderBy: { adapterType: "asc" } });
 
   return NextResponse.json({
     asOf,
@@ -119,5 +135,7 @@ export async function GET() {
     expressions,
     tradePlans,
     auditLog,
+    falsifiers,
+    watermarks,
   });
 }

@@ -61,6 +61,7 @@ async function main() {
   await db.providerCall.deleteMany();
   await db.jobRun.deleteMany();
   await db.gateThreshold.deleteMany();
+  await db.watermark.deleteMany();
 
   // ─────────────────────────────────────────────────────────────────
   // Gate thresholds (config table — never constants in code)
@@ -1027,6 +1028,56 @@ async function main() {
   await db.sourceCandidate.create({ data: { handle: "samsung_insider", citations: 3, status: "PROPOSED" }});
   await db.sourceCandidate.create({ data: { handle: "hbm_watcher",     citations: 2, status: "PROPOSED" }});
 
+  // ─────────────────────────────────────────────────────────────────
+  // Watermarks — demonstrate per-feed incrementality (RSS, X, transcripts, anchors)
+  // ─────────────────────────────────────────────────────────────────
+  console.log("› Seeding watermarks...");
+  await db.watermark.create({ data: { adapterType: "RSS",        sourceKey: "https://jukan.substack.com/feed",   lastGuid: "substack:jukan_137:" + Date.now(), lastProcessedAt: daysAgo(1) }});
+  await db.watermark.create({ data: { adapterType: "RSS",        sourceKey: "https://citrini.substack.com/feed", lastGuid: "substack:citrini7:" + Date.now(),  lastProcessedAt: daysAgo(2) }});
+  await db.watermark.create({ data: { adapterType: "RSS",        sourceKey: "https://zephyr.substack.com/feed",  lastGuid: "substack:zephyr_z9:" + Date.now(), lastProcessedAt: daysAgo(1) }});
+  await db.watermark.create({ data: { adapterType: "TRANSCRIPT", sourceKey: "https://youtube.com/@SemiAnalysis", lastExternalId: "yt:semi_analysis:" + Date.now(), lastProcessedAt: daysAgo(3) }});
+  await db.watermark.create({ data: { adapterType: "ANCHOR",     sourceKey: "TrendForce",                       lastGuid: "anchor:TrendForce:" + Date.now(), lastProcessedAt: daysAgo(0) }});
+
+  // ─────────────────────────────────────────────────────────────────
+  // Degraded sources — the 515 awaiting CP10 apply (here we add 6 as a representative sample)
+  // ─────────────────────────────────────────────────────────────────
+  console.log("› Seeding degraded sources (CP10 customers)...");
+  for (let i = 0; i < 6; i++) {
+    const degradedRaw = await db.rawContent.create({
+      data: {
+        contentHash: `degraded_${i}_${Date.now()}_${Math.random()}`,
+        url: `https://example.com/legacy/${i}`,
+        storageRef: `raw/legacy/degraded_${i}.txt`,
+        title: `Legacy source #${i+1} (Phase-5 extraction, awaiting v3 apply)`,
+        adapterType: "RSS",
+        adapterVersion: "v1-legacy",
+        bodyText: `Legacy extraction #${i}. Verbatim quote: "memory pricing dynamics remain favorable" — this content was extracted under Phase-5 prompts and is flagged degraded. The verbatim is present in raw; CP10 apply will upgrade to deep_extract/v3.`,
+        fetchedAt: daysAgo(90 + i),
+        extractionStatus: "EXTRACTED",
+      },
+    });
+    await db.source.create({
+      data: {
+        rawContentId: degradedRaw.id,
+        extractionVersion: "phase5/v1",
+        degradedExtraction: true,
+        authorId: authorIds.dylan522p,
+        dateIso: daysAgo(90 + i),
+        dateEarliest: daysAgo(90 + i),
+        dateLatest: daysAgo(90 + i),
+        direction: "BULLISH",
+        conviction: "MEDIUM",
+        confidence: "AMBIGUOUS",
+        insightType: "OBSERVATION",
+        verbatimQuote: "memory pricing dynamics remain favorable",
+        keyInsight: `Legacy degraded extraction #${i+1} — Phase-5 prompt, awaiting CP10 apply to deep_extract/v3`,
+        tickers: ["MU"] as any,
+        entities: [] as any,
+        independenceClass: "UNCLASSIFIED",
+      },
+    });
+  }
+
   console.log("");
   console.log("✓ Seed complete.");
   console.log(`  Authors:        ${await db.author.count()}`);
@@ -1040,6 +1091,8 @@ async function main() {
   console.log(`  Positions:      ${await db.debatePosition.count()}`);
   console.log(`  Falsifiers:     ${await db.falsifier.count()}`);
   console.log(`  Verif events:   ${await db.verificationEvent.count()}`);
+  console.log(`  Watermarks:     ${await db.watermark.count()}`);
+  console.log(`  Degraded src:   ${await db.source.count({ where: { degradedExtraction: true } })}`);
   console.log(`  Queue items:    ${await db.queueItem.count()}`);
   console.log(`  Job runs:       ${await db.jobRun.count()}`);
 }

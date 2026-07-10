@@ -92,6 +92,103 @@ export default function Page() {
     onError: () => toast.error("Seed failed."),
   });
 
+  // Run an adapter job (RSS / X / transcripts / anchors / events)
+  const runAdapter = useMutation({
+    mutationFn: async ({ adapter }: { adapter: string }) => {
+      const endpoint = `/api/jobs.${adapter === "transcripts" ? "transcripts" : adapter === "events" ? "events" : adapter}`;
+      const r = await fetch(endpoint, { method: "POST" });
+      if (!r.ok) throw new Error(`adapter ${adapter} failed`);
+      return r.json();
+    },
+    onSuccess: (data, vars) => {
+      qc.invalidateQueries({ queryKey: ["snapshot"] });
+      const c = data?.counts ?? {};
+      const summary = Object.entries(c).map(([k, v]) => `${k}:${v}`).join(" · ") || "no counts";
+      toast.success(`${vars.adapter} job ran — ${summary}`);
+    },
+    onError: (_e, vars) => toast.error(`${vars.adapter} job failed.`),
+  });
+
+  // Rule on a staged engagement (L10) — ANSWERED / OPEN / CONCEDED
+  const ruleEngagement = useMutation({
+    mutationFn: async ({ engagementId, decision }: { engagementId: string; decision: "ANSWERED" | "OPEN" | "CONCEDED" }) => {
+      const r = await fetch("/api/engagement/rule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engagementId, psDecision: decision }),
+      });
+      if (!r.ok) throw new Error("engagement ruling failed");
+      return r.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["snapshot"] });
+      if (data?.contrarianUpdated) {
+        toast.success(`Ruling recorded. Contrarian → ${data.newContrarianStatus}. Eligible for promotion if gates pass.`);
+      } else {
+        toast.success("Ruling recorded.");
+      }
+    },
+    onError: () => toast.error("Engagement ruling failed."),
+  });
+
+  // Promote a thesis (PS-gated) — gate check → ACTIONABLE → auto PAPER position
+  const promoteThesis = useMutation({
+    mutationFn: async ({ thesisId }: { thesisId: string }) => {
+      const r = await fetch("/api/thesis/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thesisId }),
+      });
+      if (!r.ok) throw new Error("promotion failed");
+      return r.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["snapshot"] });
+      if (data?.promoted) {
+        const extra = data.paperPositionCreated ? ` · PAPER position auto-created` : "";
+        toast.success(`Promoted: ${data.from} → ${data.to}${extra}`);
+      } else {
+        toast.error(`Cannot promote — missing: ${data?.missing?.join(", ") ?? "unknown"}`);
+      }
+    },
+    onError: () => toast.error("Promotion failed."),
+  });
+
+  // CP10 dry-run re-extraction
+  const reextractDryRun = useMutation({
+    mutationFn: async ({ targetVersion, degradedOnly }: { targetVersion: string; degradedOnly: boolean }) => {
+      const r = await fetch("/api/reextraction/dry-run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetVersion, degradedOnly }),
+      });
+      if (!r.ok) throw new Error("dry-run failed");
+      return r.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["snapshot"] });
+      toast.success(`Dry-run complete: ${data?.counts?.scanned ?? 0} scanned · ${data?.counts?.changed ?? 0} changed · ${data?.counts?.quarantined ?? 0} quarantined`);
+    },
+    onError: () => toast.error("Dry-run failed."),
+  });
+
+  // CP10 apply (PS-approved diffs → write to Source rows)
+  const reextractApply = useMutation({
+    mutationFn: async ({ diffs }: { diffs: any[] }) => {
+      const r = await fetch("/api/reextraction/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diffs }),
+      });
+      if (!r.ok) throw new Error("apply failed");
+      return r.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["snapshot"] });
+    },
+    onError: () => toast.error("Apply failed."),
+  });
+
   const authorsById = React.useMemo(() => {
     const m: Record<string, any> = {};
     for (const a of data?.authors ?? []) m[a.id] = a;
@@ -169,7 +266,14 @@ export default function Page() {
             />
           );
       case "board":
-        return <ThesisBoard theses={data.theses} verificationEvents={data.verificationEvents} />;
+        return (
+          <ThesisBoard
+            theses={data.theses}
+            verificationEvents={data.verificationEvents}
+            onRuleEngagement={(engagementId, decision) => ruleEngagement.mutateAsync({ engagementId, decision })}
+            onPromote={(thesisId) => promoteThesis.mutateAsync({ thesisId })}
+          />
+        );
       case "action":
         return (
           <ActionSurface
@@ -192,7 +296,17 @@ export default function Page() {
           />
         );
       case "ingestion":
-        return <IngestionConsole adapterHealth={data.adapterHealth} rawContents={data.rawContents} />;
+        return (
+          <IngestionConsole
+            adapterHealth={data.adapterHealth}
+            rawContents={data.rawContents}
+            watermarks={data.watermarks}
+            counts={data.counts}
+            onAdapterRun={(adapter) => runAdapter.mutateAsync({ adapter })}
+            onReextract={(targetVersion, degradedOnly) => reextractDryRun.mutateAsync({ targetVersion, degradedOnly })}
+            onApply={(diffs) => reextractApply.mutateAsync({ diffs })}
+          />
+        );
       default:
         return null;
     }

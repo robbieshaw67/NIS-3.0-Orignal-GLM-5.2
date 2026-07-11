@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen, MessagesSquare, Gavel, Target, LayoutDashboard,
   Users2, LineChart, Upload, Bell, CircleDot, ChevronRight,
+  Settings, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,12 +28,16 @@ import { DeltaBriefing } from "@/components/nip/Briefing";
 import { Authors } from "@/components/nip/Authors";
 import { Markets } from "@/components/nip/Markets";
 import { IngestionConsole } from "@/components/nip/Ingestion";
+import { Setup } from "@/components/nip/Setup";
+import { BriefingComposer } from "@/components/nip/BriefingComposer";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// ── room definitions — the four-room inversion (v2.1 §0) ──
+// ── room definitions — the six-room architecture (v2x §A) ──
 const ROOMS = [
   { id: "briefing",  label: "Briefing",     icon: LayoutDashboard, group: "intro",     desc: "Health · intake · queue" },
+  { id: "setup",     label: "Setup",        icon: Settings,        group: "intro",     desc: "ROOM 0 — Source registry" },
+  { id: "composer",  label: "Composer",     icon: FileText,        group: "intro",     desc: "ROOM 0.5 — Briefing composer" },
   { id: "stream",    label: "Stream",       icon: BookOpen,        group: "room",      desc: "ROOM 1 — Reality" },
   { id: "debates",   label: "Debates",      icon: MessagesSquare,  group: "room",      desc: "ROOM 2 — Disagreement" },
   { id: "board",     label: "Thesis Board", icon: Gavel,           group: "room",      desc: "ROOM 3 — Judgment" },
@@ -239,6 +244,10 @@ export default function Page() {
             onReseed={() => reseed.mutateAsync()}
           />
         );
+      case "setup":
+        return <Setup authors={data.authors} />;
+      case "composer":
+        return <BriefingComposer />;
       case "stream":
         return <Stream rawContents={data.rawContents} authors={data.authors} />;
       case "debates":

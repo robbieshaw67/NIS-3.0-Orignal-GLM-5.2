@@ -31,12 +31,21 @@ model RawContent {
   extractionStatus String  @default("PENDING") // PENDING|EXTRACTED|FAILED|SKIPPED_TRIAGE|PENDING_RETRY
   extractionError String   @default("")
 
+  // v2x Part C: Video extraction fields
+  mediaType       String   @default("TEXT") // TEXT | VIDEO_TRANSCRIPT | CHART_IMAGE | AUDIO_TRANSCRIPT
+  videoUrl        String?
+  videoDuration   Int?     // seconds
+  transcriptStorage String? // storage ref for full transcript
+  hasSpeakerLabels Boolean @default(false)
+  hasTimestamps   Boolean  @default(false)
+
   sources         Source[]
   images          IngestedImage[]
   ingestionBatches IngestionBatch[] @relation("BatchRawContents")
 
   @@index([adapterType, fetchedAt])
   @@index([extractionStatus])
+  @@index([mediaType])
 }
 
 model IngestionBatch {
@@ -134,9 +143,34 @@ model Source {
 
   quantClaims       QuantClaim[]
   debatePositions   DebatePosition[]
+  videoClips        VideoClip[]
+
+  // v2x Part C: Video extraction fields on Source
+  sourceMediaType   String   @default("TEXT_QUOTE") // TEXT_QUOTE | VIDEO_CLIP | EARNINGS_CALL | PODCAST_SEGMENT | CHART_REFERENCE
+  videoTimestampStart Int?   // seconds
+  videoTimestampEnd   Int?   // seconds
+  videoClipRef        String? // storage ref to 5-30 sec extracted clip
+  speaker             String?
+  speakerTitle        String?
+  visualContext       String? // "slide 5 showed capex waterfall"
+  visualRef           String?
 
   @@index([informationEventId])
   @@index([authorId, dateLatest])
+  @@index([sourceMediaType])
+}
+
+// v2x Part C: Video clips for high-conviction insights
+model VideoClip {
+  id              String   @id @default(cuid())
+  sourceId        String
+  source          Source   @relation(fields: [sourceId], references: [id])
+  videoUrl        String
+  timestampStart  Int      // seconds
+  timestampEnd    Int      // seconds
+  duration        Int      // seconds
+  storageRef      String
+  extractedAt     DateTime @default(now())
 }
 
 model Entity {
@@ -186,6 +220,10 @@ model InformationEvent {
   authorBreadth  Int      @default(0)
   independentCount Int    @default(0) // what downstream consumes (L7)
   clusterVersion String   @default("v1")
+  // v2x Part D: Dedup fields
+  sourceUrlHash  String?  // for exact-duplicate collapse
+  membersByType  Json     @default("\"{}\"") // counts per independence class
+  mentionIds     Json     @default("[]") // all sources that reference this event
   createdAt      DateTime @default(now())
 
   sources        Source[]
@@ -555,3 +593,46 @@ model GateThreshold {
   value Float
   note  String @default("")
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// v2x Part A: Briefing Composer (Room 0.5)
+// ─────────────────────────────────────────────────────────────────────
+
+model BriefingRequest {
+  id              String   @id @default(cuid())
+  template        String   // daily-standup | debate-briefing | thesis-update | topic-deepdive | custom
+  proseTemplate   String   @default("fast") // fast | analytical | structured | custom
+  authors         Json     @default("[]") // handle list
+  orgAffiliations Json     @default("[]")
+  entities        Json     @default("[]")
+  narrativeFamilies Json   @default("[]")
+  search          String   @default("")
+  since           DateTime?
+  until           DateTime?
+  length          String   @default("medium") // short | medium | long
+  includeDebates  Boolean  @default(true)
+  includeTheses   Boolean  @default(true)
+  includeClaims   Boolean  @default(true)
+  includeStanceChanges Boolean @default(true)
+  format          String   @default("html") // html | markdown | pdf | email
+  includeLinks    Boolean  @default(true)
+  status          String   @default("PENDING") // PENDING | COMPOSING | DONE | FAILED
+  createdAt       DateTime @default(now())
+  output          BriefingOutput?
+}
+
+model BriefingOutput {
+  id              String   @id @default(cuid())
+  requestId       String   @unique
+  request         BriefingRequest @relation(fields: [requestId], references: [id])
+  content         String   @default("") // HTML or Markdown
+  wordCount       Int      @default(0)
+  claimsCited     Int      @default(0)
+  sourcesCited    Int      @default(0)
+  dedupedCount    Int      @default(0) // how many echo-dedup collapses happened
+  createdAt       DateTime @default(now())
+}
+
+// v2x Part D: Dedup fields on InformationEvent
+// Added to existing InformationEvent model — see below
+

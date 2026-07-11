@@ -24,6 +24,10 @@ export function proxy(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!authUser || !authPass) {
     if (process.env.NODE_ENV === "production") {
+      // In production with no auth, only allow health + cron (cron has its own CRON_SECRET check)
+      if (pathname.startsWith("/api/cron/") || pathname.startsWith("/api/jobs.")) {
+        return NextResponse.next();
+      }
       return NextResponse.json(
         { ok: false, error: "NIP_AUTH_USER and NIP_AUTH_PASS must be set in production" },
         { status: 500 }

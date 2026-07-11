@@ -1,13 +1,13 @@
 // NIP v3.0 — Narrative Intelligence Platform
 // Schema consolidated from v2 design doc §3 + v2.1 §2 (Debate objects) + §4 (SpanAnchor).
-// All Json columns store arrays/objects as TEXT in SQLite; typed & Zod-parsed at the boundary.
+// Production: Neon Postgres. Sandbox: SQLite (fallback).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

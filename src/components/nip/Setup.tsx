@@ -59,9 +59,9 @@ function SourceCard({ author }: { author: any }) {
             <Twitter className="h-2.5 w-2.5" /> @{author.handle}
           </Badge>
         )}
-        {author.feedUrl && (
+        {author.cluster && author.cluster !== "" && (
           <Badge variant="outline" className="text-[9px] h-4 gap-0.5">
-            <Rss className="h-2.5 w-2.5" /> RSS
+            <Rss className="h-2.5 w-2.5" /> {author.cluster}
           </Badge>
         )}
       </div>
@@ -69,11 +69,7 @@ function SourceCard({ author }: { author: any }) {
       {/* Health metrics */}
       <div className="grid grid-cols-4 gap-1.5 text-[10px]">
         <div className="rounded bg-muted/20 p-1.5 text-center">
-          <div className="text-muted-foreground">Items/mo</div>
-          <div className="font-semibold tabular-nums">{author.itemCount ?? 0}</div>
-        </div>
-        <div className="rounded bg-muted/20 p-1.5 text-center">
-          <div className="text-muted-foreground">Insights</div>
+          <div className="text-muted-foreground">Forecasts</div>
           <div className="font-semibold tabular-nums">{author.forecastsMade ?? 0}</div>
         </div>
         <div className="rounded bg-muted/20 p-1.5 text-center">
@@ -83,6 +79,10 @@ function SourceCard({ author }: { author: any }) {
         <div className="rounded bg-muted/20 p-1.5 text-center">
           <div className="text-muted-foreground">Correct</div>
           <div className="font-semibold tabular-nums">{author.forecastsCorrect ?? 0}</div>
+        </div>
+        <div className="rounded bg-muted/20 p-1.5 text-center">
+          <div className="text-muted-foreground">Calib.</div>
+          <div className="font-semibold tabular-nums">{Math.round((author.calibrationScore ?? 0.5) * 100)}%</div>
         </div>
       </div>
 

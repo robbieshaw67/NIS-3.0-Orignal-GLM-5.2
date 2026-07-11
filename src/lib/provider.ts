@@ -123,9 +123,24 @@ function hashKey(s: string): string {
 // Provider client — wraps z-ai-web-dev-sdk
 // ─────────────────────────────────────────────────────────────────────
 
-// Provider client — in sandbox mode, always null (mock results used).
-// In production, this would connect to a publicly-routable Anthropic API.
-async function getClient() {
+// Provider client — in sandbox mode, returns null (mock results used).
+// In production, connects to a publicly-routable Anthropic API.
+// Returns `any` type so the production branch compiles (the client shape
+// differs from the mock; TypeScript can't know the real client's type at
+// build time when the SDK is loaded dynamically).
+async function getClient(): Promise<any> {
+  // Production: check for ANTHROPIC_API_KEY env var
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    try {
+      // Dynamic import — only loads the SDK when a key is present
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      return new Anthropic({ apiKey: anthropicKey });
+    } catch {
+      return null; // SDK not installed — fall back to mock
+    }
+  }
+  // Sandbox: no key → mock
   return null;
 }
 
@@ -225,21 +240,40 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
   let tokensOut = 0;
   try {
     // 10s timeout — L3: errors are never verdicts.
-    const callPromise = client.chat.completions.create({
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: user },
-      ],
-      temperature: cfg.temperature,
-      max_tokens: cfg.maxTokens,
-    });
+    // Support both Anthropic SDK (client.messages.create) and OpenAI-compatible
+    // (client.chat.completions.create) formats.
+    let resp: any;
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("provider-timeout-10s")), 10_000)
     );
-    const resp: any = await Promise.race([callPromise, timeoutPromise]);
-    raw = resp.choices?.[0]?.message?.content ?? "";
-    tokensIn = resp.usage?.prompt_tokens ?? Math.ceil(sys.length / 4 + user.length / 4);
-    tokensOut = resp.usage?.completion_tokens ?? Math.ceil(raw.length / 4);
+
+    if (client.messages && typeof client.messages.create === "function") {
+      // Anthropic SDK format
+      const callPromise = client.messages.create({
+        model: cfg.model,
+        max_tokens: cfg.maxTokens,
+        system: sys,
+        messages: [{ role: "user", content: user }],
+      });
+      resp = await Promise.race([callPromise, timeoutPromise]);
+      raw = resp.content?.[0]?.text ?? "";
+      tokensIn = resp.usage?.input_tokens ?? Math.ceil(sys.length / 4 + user.length / 4);
+      tokensOut = resp.usage?.output_tokens ?? Math.ceil(raw.length / 4);
+    } else {
+      // OpenAI-compatible format (fallback)
+      const callPromise = client.chat.completions.create({
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: user },
+        ],
+        temperature: cfg.temperature,
+        max_tokens: cfg.maxTokens,
+      });
+      resp = await Promise.race([callPromise, timeoutPromise]);
+      raw = resp.choices?.[0]?.message?.content ?? "";
+      tokensIn = resp.usage?.prompt_tokens ?? Math.ceil(sys.length / 4 + user.length / 4);
+      tokensOut = resp.usage?.completion_tokens ?? Math.ceil(raw.length / 4);
+    }
   } catch (e: any) {
     // L3 — errors are never verdicts. Surface a RETRY-shaped result.
     raw = JSON.stringify({ _error: e?.message ?? "provider-unreachable", _retry: true });

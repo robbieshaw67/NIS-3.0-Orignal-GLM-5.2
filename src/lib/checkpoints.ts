@@ -383,16 +383,16 @@ export async function runAllCheckpoints(rawContentId: string, sourceIds: string[
   const total = await db.rawContent.count({
     where: { fetchedAt: { gte: new Date(Date.now() - 86400_000) } },
   });
-  cp6 = { discarded, total, discardRate: total > 0 ? discarded / total : 0 };
+  const cp6 = { discarded, total, discardRate: total > 0 ? discarded / total : 0 };
 
   // CP8: attribution check per source
-  const cp8Results = [];
+  const cp8Results: any[] = [];
   for (const sid of sourceIds) {
     cp8Results.push(await checkAttribution(sid));
   }
 
   // CP9: contradiction tripwire per source
-  const cp9Results = [];
+  const cp9Results: any[] = [];
   for (const sid of sourceIds) {
     cp9Results.push(await checkContradictionTripwire(sid));
   }

@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Attribute to the channel's author if registered, else PS
-    let author = null;
+    let author: any = null;
     if (channel) {
       author = await db.author.findFirst({ where: { handle: channel } });
     }

@@ -1010,8 +1010,13 @@ export async function runContrarianPipeline() {
 
     for (const thesis of theses) {
       // Find sources with opposing direction on the same entities
-      const thesisEntities = (thesis.quantClaims.flatMap(q => q.entities ?? []) as string[]) ?? [];
-      const thesisTickers = (thesis.quantClaims.flatMap(q => q.tickers ?? []) as string[]) ?? [];
+      // Get entities/tickers from the thesis's quant claims' source
+      const thesisClaimSources = await db.source.findMany({
+        where: { quantClaims: { some: { thesisId: thesis.id } } },
+        select: { entities: true, tickers: true },
+      });
+      const thesisEntities = thesisClaimSources.flatMap(s => (s.entities as any[]) ?? []);
+      const thesisTickers = thesisClaimSources.flatMap(s => (s.tickers as any[]) ?? []);
 
       const opposingSources = await db.source.findMany({
         where: {
@@ -1269,7 +1274,8 @@ export async function runBackupJob() {
     ];
 
     // Real backup: dump each table to a JSON file in /backups/
-    const backupDir = join(process.cwd(), "backups");
+    // Use /tmp on Vercel serverless (only writable dir) or process.cwd()/backups in dev
+    const backupDir = process.env.VERCEL ? "/tmp/nip-backups" : join(process.cwd(), "backups");
     if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");

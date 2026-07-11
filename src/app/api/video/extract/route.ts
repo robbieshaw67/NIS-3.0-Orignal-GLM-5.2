@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Find or create the author
-    let author = null;
+    let author: any = null;
     if (channel) {
       author = await db.author.findFirst({ where: { handle: channel } });
     }

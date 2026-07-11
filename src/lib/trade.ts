@@ -92,9 +92,13 @@ export async function constructTradePlan(args: {
   const unitsPlanned = Math.round((riskAmount / Math.max(riskPerUnit, 0.01)) * 100) / 100;
 
   // Falsifier stops — all armed falsifiers linked to this thesis
-  const falsifiers = await db.falsifier.findMany({
-    where: { thesisIds: { has: thesisId }, status: { in: ["ARMED", "PARTIAL"] } },
+  // (JSON `has` filter not supported in Prisma — fetch and filter in JS)
+  const allFalsifiers = await db.falsifier.findMany({
+    where: { status: { in: ["ARMED", "PARTIAL"] } },
   });
+  const falsifiers = allFalsifiers.filter(f =>
+    Array.isArray(f.thesisIds) && (f.thesisIds as string[]).includes(thesisId)
+  );
   const falsifierStopIds = falsifiers.map(f => f.id);
 
   return {

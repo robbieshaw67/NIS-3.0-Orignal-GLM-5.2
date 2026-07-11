@@ -167,11 +167,13 @@ Image ref: ${imageRef}`,
     }).catch(() => null),
   ]);
 
-  const annotation = annotationRouteSchema.safeParse(annotationResult?.data).success
-    ? annotationRouteSchema.parse(annotationResult.data)
+  const annotationData = annotationResult?.data;
+  const annotation = annotationRouteSchema.safeParse(annotationData).success
+    ? annotationRouteSchema.parse(annotationData)
     : { valueLow: 0, valueHigh: 0, unit: "", horizon: "" };
-  const axisRead = axisReadRouteSchema.safeParse(axisReadResult?.data).success
-    ? axisReadRouteSchema.parse(axisReadResult.data)
+  const axisReadData = axisReadResult?.data;
+  const axisRead = axisReadRouteSchema.safeParse(axisReadData).success
+    ? axisReadRouteSchema.parse(axisReadData)
     : { valueLow: 0, valueHigh: 0, unit: "", horizon: "" };
 
   // Step 3: Date-by-date comparison → DUAL_ROUTE_MISMATCH on >15% disagreement

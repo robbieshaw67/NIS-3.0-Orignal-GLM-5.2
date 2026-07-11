@@ -119,6 +119,7 @@ model Source {
   extractionVersion String   // prompt id — L2
   degradedExtraction Boolean @default(false)
   authorId          String
+  author            Author  @relation(fields: [authorId], references: [id])
   carrierAuthorId   String?  // L8: speaker vs carrier
   dateIso           DateTime?
   dateEarliest      DateTime?
@@ -332,6 +333,7 @@ model Author {
   stances            AuthorStance[]
   stanceChanges      StanceChange[]
   familyStats        AuthorFamilyStats[]
+  sources            Source[]
 }
 
 model AuthorStance {

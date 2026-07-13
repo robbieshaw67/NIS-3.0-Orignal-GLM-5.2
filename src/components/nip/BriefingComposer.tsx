@@ -269,11 +269,10 @@ export function BriefingComposer() {
                 )}
               </div>
 
-              {/* Briefing content */}
-              <div
-                className="prose prose-sm dark:prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: result.content }}
-              />
+              {/* Briefing content — render as preformatted text to avoid HTML injection issues */}
+              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed">
+                {result.content}
+              </div>
 
               <Separator className="my-4" />
 

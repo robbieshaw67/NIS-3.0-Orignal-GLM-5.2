@@ -10,10 +10,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const asOf = new Date();
 
-  // ── Stream: raw content with extractions, in chronological order ──
-  const rawContents = await db.rawContent.findMany({
+  // ── Stream: raw content — limit to 20 and truncate bodyText to 500 chars
+  // to keep snapshot small (bodyText was 1.5MB for 60 items, causing garbled UI)
+  const rawContentsRaw = await db.rawContent.findMany({
     orderBy: { fetchedAt: "desc" },
-    take: 60,
+    take: 20,
     include: {
       sources: {
         include: { informationEvent: true, quantClaims: true },
@@ -21,6 +22,10 @@ export async function GET() {
       images: true,
     },
   });
+  const rawContents = rawContentsRaw.map(r => ({
+    ...r,
+    bodyText: r.bodyText ? r.bodyText.slice(0, 500) : "",
+  }));
 
   // ── Debates: with positions, theses, resolution events ──
   const debates = await db.debate.findMany({

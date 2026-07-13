@@ -284,6 +284,14 @@ export async function storeRaw(args: {
 // ─────────────────────────────────────────────────────────────────────
 
 // Synthetic feed registry — in production these are PS-confirmed handles + feed URLs
+// Fetch active sources from the SourceList table (managed by PS via Ingestion Console)
+async function getActiveSources(sourceType: string) {
+  return db.sourceList.findMany({
+    where: { sourceType, active: true },
+    orderBy: { handle: "asc" },
+  });
+}
+
 const RSS_FEEDS = [
   { handle: "jukan_137", feedUrl: "https://jukan.substack.com/feed", realName: "Jukan Kazuya" },
   { handle: "citrini7",  feedUrl: "https://citrini.substack.com/feed", realName: "Citrini Research" },
@@ -295,7 +303,14 @@ export async function runRssAdapter() {
   const counts = { fetched: 0, new: 0, deduped: 0, extracted: 0, quarantined: 0, errors: 0 };
 
   try {
-    for (const feed of RSS_FEEDS) {
+    // Merge DB-managed sources with hardcoded fallback
+    const dbSources = await getActiveSources("RSS");
+    const allFeeds = [
+      ...dbSources.map(s => ({ handle: s.handle, feedUrl: s.feedUrl || s.handle, realName: s.realName })),
+      ...RSS_FEEDS,
+    ].filter((v, i, a) => a.findIndex(x => x.handle === v.handle) === i); // dedup by handle
+
+    for (const feed of allFeeds) {
       const wm = await getWatermark("RSS", feed.feedUrl);
       counts.fetched++;
 
@@ -389,7 +404,14 @@ export async function runXAdapter() {
   const counts = { fetched: 0, new: 0, deduped: 0, threads: 0, extracted: 0, rateLimited: 0 };
 
   try {
-    for (const h of X_HANDLES) {
+    // Merge DB-managed sources with hardcoded fallback
+    const dbSources = await getActiveSources("X");
+    const allHandles = [
+      ...dbSources.map(s => ({ handle: s.handle.replace("@", ""), realName: s.realName })),
+      ...X_HANDLES,
+    ].filter((v, i, a) => a.findIndex(x => x.handle === v.handle) === i);
+
+    for (const h of allHandles) {
       const wm = await getWatermark("X", h.handle);
       counts.fetched++;
 
@@ -492,7 +514,14 @@ export async function runTranscriptAdapter() {
   const counts = { fetched: 0, new: 0, deduped: 0, extracted: 0, whisperFallback: 0 };
 
   try {
-    for (const c of TRANSCRIPT_CHANNELS) {
+    // Merge DB-managed sources with hardcoded fallback
+    const dbSources = await getActiveSources("TRANSCRIPT");
+    const allChannels = [
+      ...dbSources.map(s => ({ channelUrl: s.channelUrl || s.handle, handle: s.handle, realName: s.realName })),
+      ...TRANSCRIPT_CHANNELS,
+    ].filter((v, i, a) => a.findIndex(x => x.handle === v.handle) === i);
+
+    for (const c of allChannels) {
       const wm = await getWatermark("TRANSCRIPT", c.channelUrl);
       counts.fetched++;
 

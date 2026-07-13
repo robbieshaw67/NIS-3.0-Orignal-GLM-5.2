@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { CauseChip, EvidenceLink, ReconLine } from "./grammar";
+import { SourceListManager } from "./SourceListManager";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -576,8 +577,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
         <div className="max-w-7xl mx-auto">
           <h2 className="text-lg font-semibold">Ingestion console</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Visual intake · adapters · re-extraction console (CP10 — apply wired) · batch forensics.
-            Everything that comes in stores raw first (L2), errors never verdict (L3), counts reconcile (L12).
+            Visual intake · source list manager · adapters · re-extraction console (CP10) · batch forensics.
           </p>
         </div>
       </div>
@@ -586,6 +586,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
         <div className="p-4 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
           <div className="space-y-4">
             <VisualIntake />
+            <SourceListManager />
             <BatchForensics rawContents={rawContents} />
           </div>
           <div className="space-y-4">

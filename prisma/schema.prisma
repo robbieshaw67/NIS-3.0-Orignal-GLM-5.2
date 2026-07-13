@@ -597,6 +597,27 @@ model GateThreshold {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Source List — the registry of feeds/handles/channels the adapters fetch
+// PS manages this from the Ingestion Console; adapters read from this table
+// ─────────────────────────────────────────────────────────────────────
+
+model SourceList {
+  id          String   @id @default(cuid())
+  sourceType  String   // X | RSS | TRANSCRIPT | ANCHOR
+  handle      String   // @handle for X, feed URL for RSS, channel URL for transcripts
+  realName    String   @default("")
+  feedUrl     String?  // RSS feed URL (if different from handle)
+  channelUrl  String?  // YouTube channel URL
+  active      Boolean  @default(true)
+  addedBy     String   @default("PS")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sourceType, handle])
+  @@index([sourceType, active])
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // v2x Part A: Briefing Composer (Room 0.5)
 // ─────────────────────────────────────────────────────────────────────
 

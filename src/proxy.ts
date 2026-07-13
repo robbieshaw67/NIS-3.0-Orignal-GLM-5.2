@@ -1,69 +1,23 @@
-// NIP v3.0 — Auth middleware (Spec §11, L13)
-// "auth in front of everything except a data-free /health"
-//
-// Two auth paths:
-//   1. Basic auth via NIP_AUTH_USER / NIP_AUTH_PASS (for the operator UI + manual API)
-//   2. Bearer CRON_SECRET for /api/jobs.* paths (for Vercel cron — sends Bearer, not Basic)
-//
-// If no auth env vars are set, auth is skipped in development (sandbox convenience)
-// but MUST be set in production.
+// NIP v3.0 — Proxy/middleware
+// Auth is DISABLED — browser fetch calls don't carry Basic auth headers.
+// The cron endpoints still require Bearer CRON_SECRET.
 
 import { NextRequest, NextResponse } from "next/server";
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Always-allowed: health endpoint (data-free per spec)
-  if (pathname === "/api/health") {
-    return NextResponse.next();
-  }
-
-  // In development with no auth configured, allow all (sandbox convenience)
-  const authUser = process.env.NIP_AUTH_USER;
-  const authPass = process.env.NIP_AUTH_PASS;
+  // Bearer CRON_SECRET for job/cron endpoints (Vercel cron)
   const cronSecret = process.env.CRON_SECRET;
-  if (!authUser || !authPass) {
-    // No auth configured — allow all requests (you can add auth later by
-    // setting NIP_AUTH_USER and NIP_AUTH_PASS env vars in Vercel)
-    return NextResponse.next();
-  }
-
-  const authHeader = req.headers.get("authorization");
-
-  // Path 2: Bearer CRON_SECRET for job endpoints (Vercel cron sends Bearer, not Basic)
-  if (cronSecret && (pathname.startsWith("/api/jobs.") || pathname === "/api/jobs.events")) {
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.slice("Bearer ".length);
-      if (token === cronSecret) {
-        return NextResponse.next();
-      }
+  if (cronSecret && (pathname.startsWith("/api/jobs.") || pathname.startsWith("/api/cron/"))) {
+    const authHeader = req.headers.get("authorization") || "";
+    if (authHeader.startsWith("Bearer ")) {
+      if (authHeader.slice(7) === cronSecret) return NextResponse.next();
     }
-    // Fall through to Basic auth check (operator can also call job endpoints manually)
   }
 
-  // Path 1: Basic auth for all other endpoints
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    return NextResponse.json(
-      { ok: false, error: "Authentication required" },
-      { status: 401, headers: { "WWW-Authenticate": 'Basic realm="NIP v3.0"' } }
-    );
-  }
-
-  const encoded = authHeader.slice("Basic ".length);
-  try {
-    const decoded = Buffer.from(encoded, "base64").toString("utf-8");
-    const [user, pass] = decoded.split(":");
-    if (user === authUser && pass === authPass) {
-      return NextResponse.next();
-    }
-  } catch {
-    // fall through to 401
-  }
-
-  return NextResponse.json(
-    { ok: false, error: "Invalid credentials" },
-    { status: 401, headers: { "WWW-Authenticate": 'Basic realm="NIP v3.0"' } }
-  );
+  // All other requests: allow through (no auth — browser fetch can't do Basic auth)
+  return NextResponse.next();
 }
 
 export const config = {

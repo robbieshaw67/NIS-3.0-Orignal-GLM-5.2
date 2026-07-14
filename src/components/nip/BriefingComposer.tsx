@@ -95,7 +95,7 @@ export function BriefingComposer() {
     <div className="flex flex-col h-full">
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-lg font-semibold">Briefing Composer</h2>
+          <h2 className="text-lg font-semibold">Briefing Composer <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">[v3.1]</span></h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Synthesize audited intelligence into written narrative. Prose layer only — no new analysis,
             no LLM judgment, no gate-making. Every claim appears verbatim in the corpus.

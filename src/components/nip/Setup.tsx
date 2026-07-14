@@ -151,7 +151,7 @@ export function Setup({ authors }: SetupProps) {
     <div className="flex flex-col h-full">
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-lg font-semibold">Setup</h2>
+          <h2 className="text-lg font-semibold">Setup <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">[v3.1]</span></h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Source registry — manage your analyst ecosystem. One card per person/org with all media identities,
             epistemic class, health metrics, and pause/resume controls.

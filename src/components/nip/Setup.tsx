@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AuthorChip, CauseChip, EvidenceLink } from "./grammar";
+import { SourceListManager } from "./SourceListManager";
 import { cn } from "@/lib/utils";
 
 interface SetupProps {
@@ -25,7 +26,30 @@ interface SetupProps {
 type MediaTab = "all" | "x" | "rss" | "channels" | "anchors";
 
 function SourceCard({ author }: { author: any }) {
-  const [paused, setPaused] = React.useState(false);
+  const [paused, setPaused] = React.useState(!author.active);
+
+  const togglePause = async () => {
+    const newActive = paused; // if currently paused, we want to resume (active=true)
+    try {
+      // Find the matching SourceList entry by handle (best-effort)
+      const r = await fetch(`/api/sources/list?type=X`);
+      const data = await r.json();
+      const match = (data.sources || []).find((s: any) =>
+        s.handle === author.handle || s.handle === `@${author.handle}`
+      );
+      if (match) {
+        await fetch("/api/sources/list", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: match.id, active: newActive }),
+        });
+      }
+      setPaused(!newActive);
+    } catch {
+      // Fallback: just toggle local state
+      setPaused(!paused);
+    }
+  };
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -41,7 +65,7 @@ function SourceCard({ author }: { author: any }) {
           size="sm"
           variant="ghost"
           className="h-6 w-6 p-0"
-          onClick={() => setPaused(!paused)}
+          onClick={togglePause}
           title={paused ? "Resume" : "Pause"}
         >
           {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
@@ -137,6 +161,9 @@ export function Setup({ authors }: SetupProps) {
 
       <ScrollArea className="flex-1">
         <div className="p-4 max-w-7xl mx-auto space-y-4">
+          {/* Source List Manager — add/remove/toggle sources from the registry */}
+          <SourceListManager />
+
           {/* Controls */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
@@ -161,9 +188,6 @@ export function Setup({ authors }: SetupProps) {
                 </Button>
               ))}
             </div>
-            <Button size="sm" variant="outline" className="h-7 text-xs">
-              <Plus className="h-3 w-3 mr-1" /> Add source
-            </Button>
           </div>
 
           {/* Discovery candidates */}

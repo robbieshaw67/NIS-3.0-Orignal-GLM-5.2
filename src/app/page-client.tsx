@@ -380,7 +380,7 @@ export function PageClient() {
             </div>
             <div>
               <h1 className="text-sm font-semibold leading-tight">NIP v3.0</h1>
-              <p className="text-[10px] text-muted-foreground">Narrative Intelligence</p>
+              <p className="text-[10px] text-muted-foreground">Narrative Intelligence · build 6a97</p>
             </div>
           </div>
         </div>

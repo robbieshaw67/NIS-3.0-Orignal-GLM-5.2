@@ -5,7 +5,6 @@
 // Prose layer only — no new analysis, no LLM judgment, no gate-making.
 
 import * as React from "react";
-import ReactMarkdown from "react-markdown";
 import {
   FileText, Sparkles, Search, Calendar, Download, RefreshCw,
   CheckCircle2, AlertCircle,
@@ -18,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { SimpleMarkdown } from "./SimpleMarkdown";
 
 const TEMPLATES = [
   { id: "daily-standup", label: "Daily Standup", desc: "What I missed in 24–48h", prose: "fast" },
@@ -271,16 +271,8 @@ export function BriefingComposer() {
               </div>
 
               {/* Briefing content — rendered as Markdown (headings, bold, lists, links) */}
-              <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed
-                [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:mt-4 [&_h1]:mb-2
-                [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1.5
-                [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
-                [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5
-                [&_a]:text-primary [&_a]:underline
-                [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground
-                [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs
-                [&_strong]:font-semibold">
-                <ReactMarkdown>{result.content}</ReactMarkdown>
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <SimpleMarkdown content={result.content} />
               </div>
 
               <Separator className="my-4" />

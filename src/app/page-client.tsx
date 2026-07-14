@@ -34,6 +34,7 @@ import { Markets } from "@/components/nip/Markets";
 import { IngestionConsole } from "@/components/nip/Ingestion";
 import { Setup } from "@/components/nip/Setup";
 import { BriefingComposer } from "@/components/nip/BriefingComposer";
+import { ErrorBoundary } from "@/components/nip/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -249,11 +250,23 @@ export function PageClient() {
           />
         );
       case "setup":
-        return <Setup authors={data.authors} />;
+        return (
+          <ErrorBoundary label="Setup">
+            <Setup authors={data.authors} />
+          </ErrorBoundary>
+        );
       case "composer":
-        return <BriefingComposer />;
+        return (
+          <ErrorBoundary label="Composer">
+            <BriefingComposer />
+          </ErrorBoundary>
+        );
       case "stream":
-        return <Stream rawContents={data.rawContents} authors={data.authors} />;
+        return (
+          <ErrorBoundary label="Stream">
+            <Stream rawContents={data.rawContents} authors={data.authors} />
+          </ErrorBoundary>
+        );
       case "debates":
         return selectedDebateId
           ? (() => {
@@ -297,7 +310,11 @@ export function PageClient() {
           />
         );
       case "authors":
-        return <Authors authors={data.authors} />;
+        return (
+          <ErrorBoundary label="Authors">
+            <Authors authors={data.authors} />
+          </ErrorBoundary>
+        );
       case "markets":
         return (
           <Markets

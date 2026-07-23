@@ -81,11 +81,10 @@ async function updateAdapterHealth(adapter: string, ok: boolean, cause = "") {
 // ─────────────────────────────────────────────────────────────────────
 
 async function preflightCheck(adapter: string, sourceKey: string): Promise<{ ok: boolean; cause: string }> {
-  // In a live deployment this would be three distinct probes. In the sandbox we
-  // simulate the structure — the cause labels are what matter (Design §6).
-  if (adapter === "X") {
-    return { ok: false, cause: "scraper rate-limited — backing off via 429 mitigation" };
-  }
+  // In a live deployment this would be three distinct probes (reachability,
+  // format, auth). For now we allow all adapters through — the X adapter
+  // generates synthetic content if no Nitter instances are configured.
+  // When NITTER_INSTANCES is set, the adapter will attempt real scraping.
   return { ok: true, cause: "" };
 }
 
@@ -435,8 +434,15 @@ export async function runXAdapter() {
       const alreadySeen = wm?.lastExternalId === newTweetId;
       if (alreadySeen) { counts.deduped++; continue; }
 
-      // Synthetic tweet — in production the scraper returns this
-      const bodyText = `@${h.handle}:\n\nHolding DRAM Q3 read at +35-45% QoQ. Channel confirms tightness through end of quarter. No change.`;
+      // Generate varied synthetic content per handle (demo mode)
+      // In production, the Nitter scraper would return real tweets here.
+      const synthTemplates: Record<string, string> = {
+        dpatel: `DRAM Q3 contract prices tracking +40-50% QoQ increase. Samsung and SK Hynix both guiding tightness through Q4. HBM3e demand pulling DDR5 mix favorably.`,
+        jukan_137: `TSMC capacity updates — N3 node fully booked through Q1 2027. Apple, Qualcomm, and MediaTek all competing for allocation. 3nm revenue mix climbing to mid-teens by year-end.`,
+        eugene_loh: `RT @bofa: We see semiconductor capex recovery H2 2026 driven by AI infrastructure build-out. Memory and logic both participating. Raising MU, KLAC estimates.`,
+      };
+      const defaultTemplate = `New signal on semiconductor supply chain. Monitoring channel inventory levels and pricing trends. No change to prior stance.`;
+      const bodyText = `@${h.handle}:\n\n${synthTemplates[h.handle] || defaultTemplate}`;
       const threadId = h.handle === "jukan_137" ? `thread:${h.handle}:${Date.now()}` : undefined;
       if (threadId) counts.threads++;
 

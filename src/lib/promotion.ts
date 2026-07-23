@@ -113,10 +113,21 @@ export async function attemptPromote(args: {
   if (!thesis) throw new Error("thesis not found");
 
   // Load linked events for counter computation
-  const events = await db.informationEvent.findMany({
-    where: { id: { in: (thesis.eventIds as string[]) ?? [] } },
+  // eventIds is stored as jsonb — may be double-encoded string
+  let eventIds: any = thesis.eventIds;
+  try {
+    if (typeof eventIds === "string") {
+      eventIds = JSON.parse(eventIds);
+      if (typeof eventIds === "string") {
+        eventIds = JSON.parse(eventIds);
+      }
+    }
+    if (!Array.isArray(eventIds)) eventIds = [];
+  } catch { eventIds = []; }
+  const events: any[] = eventIds.length > 0 ? await db.informationEvent.findMany({
+    where: { id: { in: eventIds as string[] } },
     include: { sources: { include: { rawContent: true } } },
-  });
+  }) : [];
 
   // L7: load actual Author org + epistemic class for each source's author.
   // The gate's distinctOrgs/distinctClasses counters depend on this — passing

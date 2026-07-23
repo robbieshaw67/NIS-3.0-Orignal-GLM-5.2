@@ -324,11 +324,21 @@ export async function computeCrowding(thesisId: string): Promise<{
     return { echoShare: 0, noNewIndependentDays: 0, synthesizerArrival: false, chartVirality: 0, crowdingFlag: false };
   }
 
-  const eventIds = (thesis.eventIds as string[]) ?? [];
-  const events = await db.informationEvent.findMany({
-    where: { id: { in: eventIds } },
+  // eventIds is stored as jsonb — may be double-encoded string
+  let eventIds: any = thesis.eventIds;
+  try {
+    if (typeof eventIds === "string") {
+      eventIds = JSON.parse(eventIds);
+      if (typeof eventIds === "string") {
+        eventIds = JSON.parse(eventIds);
+      }
+    }
+    if (!Array.isArray(eventIds)) eventIds = [];
+  } catch { eventIds = []; }
+  const events: any[] = eventIds.length > 0 ? await db.informationEvent.findMany({
+    where: { id: { in: eventIds as string[] } },
     include: { sources: true },
-  });
+  }) : [];
 
   // Echo share: ECHO / (ECHO + INDEPENDENT + ORIGIN)
   let echoCount = 0, independentCount = 0, originCount = 0;

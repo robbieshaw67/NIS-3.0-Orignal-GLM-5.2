@@ -242,9 +242,9 @@ function QueueItemCard({ q, onResolve }: { q: any; onResolve?: (id: string, deci
             <>
               {detail.falsifier && (
                 <div className="rounded bg-background/50 p-2">
-                  <div className="font-medium">{detail.falsifier.label}</div>
+                  <div className="font-medium">{detail.falsifier.statement || detail.falsifier.eventFamily || "Falsifier"}</div>
                   <div className="text-muted-foreground mt-0.5">
-                    Status: {detail.falsifier.status} · Query: <code className="text-[9px]">{detail.falsifier.compiledQuery}</code>
+                    Status: {detail.falsifier.status} · Query: <code className="text-[9px]">{String(detail.falsifier.compiledQuery || "").slice(0, 80)}</code>
                   </div>
                 </div>
               )}

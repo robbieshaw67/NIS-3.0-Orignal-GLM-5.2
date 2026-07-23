@@ -102,15 +102,16 @@ export async function GET(req: NextRequest) {
         if (payload.falsifierId) {
           falsifier = await db.falsifier.findUnique({ where: { id: payload.falsifierId } });
         }
-        // Fallback: search by summary keywords
+        // Fallback: search by statement text from summary keywords
         if (!falsifier) {
           const keywords = summary.split(/[:.,\s]+/).filter(w => w.length > 4).slice(0, 3);
           for (const kw of keywords) {
             falsifier = await db.falsifier.findFirst({
               where: {
                 OR: [
-                  { label: { contains: kw, mode: "insensitive" } },
+                  { statement: { contains: kw, mode: "insensitive" } },
                   { compiledQuery: { contains: kw, mode: "insensitive" } },
+                  { eventFamily: { contains: kw, mode: "insensitive" } },
                 ],
               },
             });
@@ -125,13 +126,17 @@ export async function GET(req: NextRequest) {
           });
         }
         detail.falsifier = falsifier;
-        if (falsifier?.thesisId) {
-          detail.thesis = await db.thesis.findUnique({ where: { id: falsifier.thesisId } });
-        } else if (falsifier) {
-          // Try to find a thesis matching the falsifier's narrative family
-          detail.thesis = await db.thesis.findFirst({
-            where: { narrativeFamily: { contains: falsifier.narrativeFamily || "", mode: "insensitive" } },
-          });
+        // Link to thesis — falsifier has thesisIds (JSON array), not thesisId
+        if (falsifier?.thesisIds) {
+          let thesisIds: string[] = [];
+          try {
+            thesisIds = typeof falsifier.thesisIds === "string" 
+              ? JSON.parse(falsifier.thesisIds) 
+              : falsifier.thesisIds;
+          } catch {}
+          if (Array.isArray(thesisIds) && thesisIds.length > 0) {
+            detail.thesis = await db.thesis.findUnique({ where: { id: thesisIds[0] } });
+          }
         }
         break;
       }
@@ -141,14 +146,14 @@ export async function GET(req: NextRequest) {
           author = await db.author.findUnique({
             where: { id: payload.authorId },
             include: {
-              stances: { orderBy: { createdAt: "desc" }, take: 5 },
+              stances: { orderBy: { lastEventDate: "desc" }, take: 5 },
               stanceChanges: { orderBy: { createdAt: "desc" }, take: 3 },
             },
           });
         }
         // Fallback: search by handle or name in summary
         if (!author) {
-          // Extract handle from summary (e.g. "Citrini REVERSING on Hyperscaler Concentration")
+          // Extract name from summary (e.g. "Citrini REVERSING on Hyperscaler Concentration")
           const handleMatch = summary.match(/@?(\w+)/);
           if (handleMatch) {
             const name = handleMatch[1];
@@ -160,7 +165,7 @@ export async function GET(req: NextRequest) {
                 ],
               },
               include: {
-                stances: { orderBy: { createdAt: "desc" }, take: 5 },
+                stances: { orderBy: { lastEventDate: "desc" }, take: 5 },
                 stanceChanges: { orderBy: { createdAt: "desc" }, take: 3 },
               },
             });

@@ -218,7 +218,9 @@ export function composeBriefingData(
       // Headline
       const topSource = sortedSources[0];
       if (topSource) {
-        sections.push(`## Headline\n\n${topSource.keyInsight}`);
+        sections.push(`## Headline\n\n${topSource.keyInsight || topSource.verbatimQuote || "(no headline insight available)"}`);
+      } else {
+        sections.push(`## Headline\n\nNo new sources in the requested period.`);
       }
 
       // By source
@@ -227,7 +229,13 @@ export function composeBriefingData(
         const author = src.author;
         const weight = author ? getAuthorityWeight(author).toFixed(2) : "1.00";
         const dedupNote = src._deduped ? ` (retweeted by ${src._echoCount} tracked authors)` : "";
-        sections.push(`- **${author?.realName ?? "Unknown"}** (@${author?.handle}, ${author?.epistemicClass}, ${weight} weight): ${src.keyInsight}${dedupNote} [source](${src.rawContent?.url})`);
+        // Fix: handle handles that already start with @, and unknown authors
+        const handle = author?.handle ? (author.handle.startsWith("@") ? author.handle : `@${author.handle}`) : "@unresolved";
+        const realName = author?.realName || "Unknown";
+        const epistemicClass = author?.epistemicClass || "UNRESOLVED";
+        const insight = src.keyInsight || src.verbatimQuote || "(no insight extracted)";
+        const sourceUrl = src.rawContent?.url || "#";
+        sections.push(`- **${realName}** (${handle}, ${epistemicClass}, ${weight} weight): ${insight}${dedupNote} [source](${sourceUrl})`);
       }
 
       // Debate movement
@@ -251,7 +259,8 @@ export function composeBriefingData(
         sections.push("\n## Risks\n");
         const reversals = data.stanceChanges.filter(s => s.changeType === "REVERSING");
         for (const sc of reversals.slice(0, 5)) {
-          sections.push(`- **${sc.author?.realName}** REVERSING on ${sc.narrativeFamily} (magnitude ${sc.magnitude.toFixed(2)})`);
+          const authorName = sc.author?.realName || sc.author?.handle || "Unknown";
+          sections.push(`- **${authorName}** REVERSING on ${sc.narrativeFamily || "unknown family"} (magnitude ${(sc.magnitude ?? 0).toFixed(2)})`);
         }
       }
       break;
@@ -269,13 +278,15 @@ export function composeBriefingData(
         const sideB = d.positions?.filter((p: any) => p.side === "B") ?? [];
 
         sections.push("### Side A");
+        if (sideA.length === 0) sections.push("(no positions)");
         for (const p of sideA) {
-          sections.push(`- **${p.authorName}** (${p.orgId}): ${p.statement} [source](${p.source?.rawContent?.url})`);
+          sections.push(`- **${p.authorName || "Unknown"}** (${p.orgId || "—"}): ${p.statement || "(no statement)"} [source](${p.source?.rawContent?.url || "#"})`);
         }
 
         sections.push("\n### Side B");
+        if (sideB.length === 0) sections.push("(no positions)");
         for (const p of sideB) {
-          sections.push(`- **${p.authorName}** (${p.orgId}): ${p.statement} [source](${p.source?.rawContent?.url})`);
+          sections.push(`- **${p.authorName || "Unknown"}** (${p.orgId || "—"}): ${p.statement || "(no statement)"} [source](${p.source?.rawContent?.url || "#"})`);
         }
 
         if (d.resolutionEvents?.length > 0) {

@@ -8,6 +8,9 @@
 //   CANDIDATE   → source candidate + sample refs
 //   ATTRIBUTION → flagged source + raw content
 //   QUARANTINE  → quarantined raw content + reason
+//
+// When payload is empty (e.g. seeded queue items), falls back to best-effort
+// lookup based on the summary text — searches theses, authors, falsifiers, etc.
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -33,92 +36,224 @@ export async function GET(req: NextRequest) {
   }
 
   const detail: any = { ...queueItem, payload };
+  const summary = queueItem.summary || "";
 
   try {
     switch (queueItem.type) {
       case "RULING": {
-        // Thesis + staged engagements
-        const thesisId = payload.thesisId;
-        if (thesisId) {
-          const thesis = await db.thesis.findUnique({
-            where: { id: thesisId },
+        // Try payload first, then fallback to summary search
+        let thesis = null;
+        if (payload.thesisId) {
+          thesis = await db.thesis.findUnique({
+            where: { id: payload.thesisId },
             include: {
               engagements: { orderBy: { createdAt: "desc" } },
               quantClaims: { include: { source: true } },
             },
           });
-          detail.thesis = thesis;
-          detail.engagements = thesis?.engagements ?? [];
+        }
+        // Fallback: search by title keywords from the summary
+        if (!thesis) {
+          const keywords = summary.split(/[:.,\s]+/).filter(w => w.length > 4).slice(0, 3);
+          for (const kw of keywords) {
+            thesis = await db.thesis.findFirst({
+              where: { title: { contains: kw, mode: "insensitive" } },
+              include: {
+                engagements: { orderBy: { createdAt: "desc" }, take: 10 },
+                quantClaims: { include: { source: true }, take: 5 },
+              },
+            });
+            if (thesis) break;
+          }
+        }
+        detail.thesis = thesis;
+        detail.engagements = thesis?.engagements ?? [];
+
+        // If no engagements found via thesis, try fetching all open engagements
+        if (detail.engagements.length === 0) {
+          detail.engagements = await db.thesisEngagement.findMany({
+            where: { status: "OPEN" },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+          });
         }
         break;
       }
       case "VLM_RATIFY": {
         const imageId = payload.imageId;
         if (imageId) {
-          const image = await db.ingestedImage.findUnique({
+          detail.image = await db.ingestedImage.findUnique({
             where: { id: imageId },
             include: { parentRaw: true },
           });
-          detail.image = image;
+        }
+        // Fallback: get the most recent pending image
+        if (!detail.image) {
+          detail.image = await db.ingestedImage.findFirst({
+            where: { ratificationStatus: "PENDING" },
+            include: { parentRaw: true },
+            orderBy: { createdAt: "desc" },
+          });
         }
         break;
       }
       case "TRIPWIRE": {
-        const falsifierId = payload.falsifierId;
-        if (falsifierId) {
-          const falsifier = await db.falsifier.findUnique({
-            where: { id: falsifierId },
-          });
-          detail.falsifier = falsifier;
-          if (falsifier?.thesisId) {
-            detail.thesis = await db.thesis.findUnique({
-              where: { id: falsifier.thesisId },
+        let falsifier = null;
+        if (payload.falsifierId) {
+          falsifier = await db.falsifier.findUnique({ where: { id: payload.falsifierId } });
+        }
+        // Fallback: search by summary keywords
+        if (!falsifier) {
+          const keywords = summary.split(/[:.,\s]+/).filter(w => w.length > 4).slice(0, 3);
+          for (const kw of keywords) {
+            falsifier = await db.falsifier.findFirst({
+              where: {
+                OR: [
+                  { label: { contains: kw, mode: "insensitive" } },
+                  { compiledQuery: { contains: kw, mode: "insensitive" } },
+                ],
+              },
             });
+            if (falsifier) break;
           }
+        }
+        // Fallback: get any armed/partial falsifier
+        if (!falsifier) {
+          falsifier = await db.falsifier.findFirst({
+            where: { status: { in: ["ARMED", "PARTIAL"] } },
+            orderBy: { armedAt: "desc" },
+          });
+        }
+        detail.falsifier = falsifier;
+        if (falsifier?.thesisId) {
+          detail.thesis = await db.thesis.findUnique({ where: { id: falsifier.thesisId } });
+        } else if (falsifier) {
+          // Try to find a thesis matching the falsifier's narrative family
+          detail.thesis = await db.thesis.findFirst({
+            where: { narrativeFamily: { contains: falsifier.narrativeFamily || "", mode: "insensitive" } },
+          });
         }
         break;
       }
       case "ALERT": {
-        const authorId = payload.authorId;
-        if (authorId) {
-          const author = await db.author.findUnique({
-            where: { id: authorId },
+        let author = null;
+        if (payload.authorId) {
+          author = await db.author.findUnique({
+            where: { id: payload.authorId },
             include: {
               stances: { orderBy: { createdAt: "desc" }, take: 5 },
               stanceChanges: { orderBy: { createdAt: "desc" }, take: 3 },
             },
           });
-          detail.author = author;
         }
-        const thesisId = payload.thesisId;
-        if (thesisId) {
-          detail.thesis = await db.thesis.findUnique({ where: { id: thesisId } });
+        // Fallback: search by handle or name in summary
+        if (!author) {
+          // Extract handle from summary (e.g. "Citrini REVERSING on Hyperscaler Concentration")
+          const handleMatch = summary.match(/@?(\w+)/);
+          if (handleMatch) {
+            const name = handleMatch[1];
+            author = await db.author.findFirst({
+              where: {
+                OR: [
+                  { realName: { contains: name, mode: "insensitive" } },
+                  { handle: { contains: name, mode: "insensitive" } },
+                ],
+              },
+              include: {
+                stances: { orderBy: { createdAt: "desc" }, take: 5 },
+                stanceChanges: { orderBy: { createdAt: "desc" }, take: 3 },
+              },
+            });
+          }
+        }
+        detail.author = author;
+
+        // Find thesis mentioned in summary
+        if (payload.thesisId) {
+          detail.thesis = await db.thesis.findUnique({ where: { id: payload.thesisId } });
+        } else {
+          const keywords = summary.split(/[:.,\s]+/).filter(w => w.length > 5).slice(0, 3);
+          for (const kw of keywords) {
+            detail.thesis = await db.thesis.findFirst({
+              where: { title: { contains: kw, mode: "insensitive" } },
+            });
+            if (detail.thesis) break;
+          }
+        }
+
+        // Get recent stance changes regardless
+        if (!author?.stanceChanges?.length) {
+          detail.recentStanceChanges = await db.stanceChange.findMany({
+            include: { author: true },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          });
         }
         break;
       }
       case "CANDIDATE": {
-        const candidateId = payload.candidateId;
-        if (candidateId) {
-          detail.candidate = await db.sourceCandidate.findUnique({
-            where: { id: candidateId },
+        let candidate = null;
+        if (payload.candidateId) {
+          candidate = await db.sourceCandidate.findUnique({ where: { id: payload.candidateId } });
+        }
+        // Fallback: search by handle in summary
+        if (!candidate) {
+          const handleMatch = summary.match(/@(\w+)/);
+          if (handleMatch) {
+            candidate = await db.sourceCandidate.findFirst({
+              where: { handle: { contains: handleMatch[1], mode: "insensitive" } },
+            });
+          }
+        }
+        // Fallback: get most recent proposed candidate
+        if (!candidate) {
+          candidate = await db.sourceCandidate.findFirst({
+            where: { status: "PROPOSED" },
+            orderBy: { proposedAt: "desc" },
           });
         }
+        detail.candidate = candidate;
         break;
       }
       case "ATTRIBUTION":
       case "QUARANTINE": {
-        const sourceId = payload.sourceId;
-        if (sourceId) {
-          const source = await db.source.findUnique({
-            where: { id: sourceId },
+        let source = null;
+        if (payload.sourceId) {
+          source = await db.source.findUnique({
+            where: { id: payload.sourceId },
             include: { rawContent: true, informationEvent: true },
           });
-          detail.source = source;
         }
-        const rawContentId = payload.rawContentId;
-        if (rawContentId) {
-          detail.rawContent = await db.rawContent.findUnique({
-            where: { id: rawContentId },
+        // Fallback: search by handle/name in summary
+        if (!source) {
+          const keywords = summary.split(/[:.,\s]+/).filter(w => w.length > 4).slice(0, 3);
+          for (const kw of keywords) {
+            source = await db.source.findFirst({
+              where: {
+                OR: [
+                  { handle: { contains: kw, mode: "insensitive" } },
+                  { verbatimQuote: { contains: kw, mode: "insensitive" } },
+                  { keyInsight: { contains: kw, mode: "insensitive" } },
+                ],
+              },
+              include: { rawContent: true, informationEvent: true },
+            });
+            if (source) break;
+          }
+        }
+        detail.source = source;
+
+        if (payload.rawContentId) {
+          detail.rawContent = await db.rawContent.findUnique({ where: { id: payload.rawContentId } });
+        } else if (!source) {
+          // Fallback: get a recent raw content matching the queue type
+          const where: any = {};
+          if (queueItem.type === "QUARANTINE") {
+            where.extractionStatus = "SKIPPED_TRIAGE";
+          }
+          detail.rawContent = await db.rawContent.findFirst({
+            where,
+            orderBy: { fetchedAt: "desc" },
           });
         }
         break;

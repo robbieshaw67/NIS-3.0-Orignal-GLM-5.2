@@ -261,21 +261,38 @@ function QueueItemCard({ q, onResolve }: { q: any; onResolve?: (id: string, deci
             <>
               {detail.author && (
                 <div className="rounded bg-background/50 p-2">
-                  <div className="font-medium">{detail.author.realName} (@{detail.author.handle})</div>
+                  <div className="font-medium">{detail.author.realName || "Unknown"} (@{detail.author.handle || "—"})</div>
                   <div className="text-muted-foreground mt-0.5">
-                    Class: {detail.author.epistemicClass} · Org: {detail.author.orgAffiliation || "Independent"}
+                    Class: {detail.author.epistemicClass || "—"} · Org: {detail.author.orgAffiliation || "Independent"}
                   </div>
                 </div>
               )}
               {detail.author?.stanceChanges?.length > 0 && (
                 <div>
-                  <div className="font-medium mb-1">Recent stance changes:</div>
+                  <div className="font-medium mb-1">Recent stance changes by this author:</div>
                   {detail.author.stanceChanges.map((sc: any) => (
                     <div key={sc.id} className="rounded bg-background/50 p-1.5 mb-1">
-                      <span className="font-mono">{sc.oldDirection} → {sc.newDirection}</span>
+                      <span className="font-mono">{sc.oldDirection || "?"} → {sc.newDirection || "?"}</span>
                       {sc.reasoning && <div className="text-muted-foreground mt-0.5">{sc.reasoning}</div>}
                     </div>
                   ))}
+                </div>
+              )}
+              {detail.recentStanceChanges?.length > 0 && !detail.author?.stanceChanges?.length && (
+                <div>
+                  <div className="font-medium mb-1">Recent stance changes (all authors):</div>
+                  {detail.recentStanceChanges.map((sc: any) => (
+                    <div key={sc.id} className="rounded bg-background/50 p-1.5 mb-1">
+                      <span className="font-mono">{sc.author?.realName || sc.author?.handle || "Unknown"}: {sc.oldDirection || "?"} → {sc.newDirection || "?"}</span>
+                      {sc.reasoning && <div className="text-muted-foreground mt-0.5">{sc.reasoning}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {detail.thesis && (
+                <div className="text-muted-foreground mt-1">
+                  Linked thesis: <span className="font-medium text-foreground">{detail.thesis.title}</span>
+                  <span className="ml-2">Stage: {detail.thesis.stage}</span>
                 </div>
               )}
             </>

@@ -33,11 +33,21 @@ interface IngestionProps {
 }
 
 const ADAPTER_JOBS = [
-  { id: "rss",        label: "RSS",        endpoint: "/api/jobs.rss",        icon: RefreshCw },
-  { id: "x",          label: "X scraper",  endpoint: "/api/jobs.x",          icon: Activity },
-  { id: "transcripts",label: "Transcripts",endpoint: "/api/jobs.transcripts",icon: FileSearch },
-  { id: "anchors",    label: "Anchors",    endpoint: "/api/jobs.anchors",    icon: Database },
-  { id: "events",     label: "Events",     endpoint: "/api/jobs.events",     icon: Layers3 },
+  { id: "rss",         label: "RSS",         endpoint: "/api/jobs.rss",         icon: RefreshCw },
+  { id: "x",           label: "X scraper",   endpoint: "/api/jobs.x",           icon: Activity },
+  { id: "transcripts", label: "Transcripts", endpoint: "/api/jobs.transcripts", icon: FileSearch },
+  { id: "anchors",     label: "Anchors",     endpoint: "/api/jobs.anchors",     icon: Database },
+  { id: "events",      label: "Events",      endpoint: "/api/jobs.events",      icon: Layers3 },
+];
+
+const PIPELINE_JOBS = [
+  { id: "stance",      label: "Stance",       endpoint: "/api/jobs.stance" },
+  { id: "contrarian",  label: "Contrarian",   endpoint: "/api/jobs.contrarian" },
+  { id: "falsifiers",  label: "Falsifiers",   endpoint: "/api/jobs.falsifiers" },
+  { id: "debates",     label: "Debates",      endpoint: "/api/jobs.debates" },
+  { id: "ladder",      label: "Ladder",       endpoint: "/api/jobs.ladder" },
+  { id: "verifications", label: "Verifications", endpoint: "/api/jobs.verifications" },
+  { id: "scorecard",   label: "Scorecard",    endpoint: "/api/jobs.scorecard" },
 ];
 
 // ── Visual Intake ──
@@ -369,6 +379,78 @@ function AdapterStatus({ adapters, watermarks, onAdapterRun }: {
           );
         })}
       </div>
+
+      {/* Pipeline jobs — stance, contrarian, falsifiers, ladder, etc. */}
+      <Separator className="my-3" />
+      <div className="flex items-center gap-1.5 mb-2">
+        <Layers3 className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-medium">Pipeline jobs</span>
+        <span className="text-[10px] text-muted-foreground">manually trigger processing stages</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {PIPELINE_JOBS.map(job => {
+          const isRunning = running === job.id;
+          return (
+            <Button
+              key={job.id}
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] justify-start"
+              disabled={isRunning}
+              onClick={async () => {
+                setRunning(job.id);
+                try {
+                  const r = await fetch(job.endpoint, { method: "POST" });
+                  const data = await r.json();
+                  if (data.ok !== false) {
+                    const c = data?.counts ?? {};
+                    const summary = Object.entries(c).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(" · ") || "done";
+                    toast.success(`${job.label}: ${summary}`);
+                  } else {
+                    toast.error(`${job.label} failed: ${data?.error || "unknown"}`);
+                  }
+                } catch (e: any) {
+                  toast.error(`${job.label} failed: ${e.message}`);
+                } finally {
+                  setRunning(null);
+                }
+              }}
+            >
+              {isRunning ? <RefreshCw className="h-2.5 w-2.5 mr-1 animate-spin" /> : <Play className="h-2.5 w-2.5 mr-1" />}
+              {job.label}
+            </Button>
+          );
+        })}
+      </div>
+
+      {/* Run all jobs (daily dispatcher) */}
+      <Separator className="my-3" />
+      <Button
+        size="sm"
+        className="w-full h-8 text-xs"
+        disabled={running === "all"}
+        onClick={async () => {
+          setRunning("all");
+          try {
+            const r = await fetch("/api/cron/daily", { method: "POST" });
+            const data = await r.json();
+            if (data.ok !== false) {
+              const results = data?.results || {};
+              const count = Object.keys(results).length;
+              toast.success(`All ${count} jobs dispatched`);
+            } else {
+              toast.error(`Run-all failed: ${data?.error || "unknown"}`);
+            }
+          } catch (e: any) {
+            toast.error(`Run-all failed: ${e.message}`);
+          } finally {
+            setRunning(null);
+          }
+        }}
+      >
+        {running === "all" ? <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
+        {running === "all" ? "Running all jobs…" : "Run all jobs (daily batch)"}
+      </Button>
     </div>
   );
 }

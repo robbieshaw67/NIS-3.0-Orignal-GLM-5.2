@@ -110,7 +110,6 @@ export async function GET(req: NextRequest) {
               where: {
                 OR: [
                   { statement: { contains: kw, mode: "insensitive" } },
-                  { compiledQuery: { contains: kw, mode: "insensitive" } },
                   { eventFamily: { contains: kw, mode: "insensitive" } },
                 ],
               },

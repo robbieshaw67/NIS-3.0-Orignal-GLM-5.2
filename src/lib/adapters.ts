@@ -702,11 +702,16 @@ export async function runLadderRecompute() {
       counts.reevaluated++;
 
       // Load linked events with sources + authors for counter computation (L7)
-      const eventIds = (t.eventIds as string[]) ?? [];
-      const events = await db.informationEvent.findMany({
+      // eventIds is stored as JSON in Postgres — may come back as string or array
+      let eventIds: string[] = [];
+      try {
+        eventIds = typeof t.eventIds === "string" ? JSON.parse(t.eventIds) : (t.eventIds as string[]) ?? [];
+        if (!Array.isArray(eventIds)) eventIds = [];
+      } catch { eventIds = []; }
+      const events = eventIds.length > 0 ? await db.informationEvent.findMany({
         where: { id: { in: eventIds } },
         include: { sources: true },
-      });
+      }) : [];
 
       // Load author org/class data (the L7 fix)
       const authorIds = new Set<string>();
@@ -1147,7 +1152,12 @@ export async function runVerificationsMonitor() {
       });
 
       // Resolve linked QuantClaims
-      const metricIds = (ev.metricIds as string[]) ?? [];
+      // metricIds is stored as JSON in Postgres — may come back as string or array
+      let metricIds: string[] = [];
+      try {
+        metricIds = typeof ev.metricIds === "string" ? JSON.parse(ev.metricIds) : (ev.metricIds as string[]) ?? [];
+        if (!Array.isArray(metricIds)) metricIds = [];
+      } catch { metricIds = []; }
       if (metricIds.length > 0) {
         const linkedClaims = await db.quantClaim.findMany({
           where: { metricId: { in: metricIds }, resolvedValue: null },

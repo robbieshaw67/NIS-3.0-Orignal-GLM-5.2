@@ -226,22 +226,22 @@ export async function GET(req: NextRequest) {
         if (payload.sourceId) {
           source = await db.source.findUnique({
             where: { id: payload.sourceId },
-            include: { rawContent: true, informationEvent: true },
+            include: { rawContent: true, informationEvent: true, author: true },
           });
         }
-        // Fallback: search by handle/name in summary
+        // Fallback: search by keywords in verbatimQuote, keyInsight, or speaker
         if (!source) {
           const keywords = summary.split(/[:.,\s]+/).filter(w => w.length > 4).slice(0, 3);
           for (const kw of keywords) {
             source = await db.source.findFirst({
               where: {
                 OR: [
-                  { handle: { contains: kw, mode: "insensitive" } },
                   { verbatimQuote: { contains: kw, mode: "insensitive" } },
                   { keyInsight: { contains: kw, mode: "insensitive" } },
+                  { speaker: { contains: kw, mode: "insensitive" } },
                 ],
               },
-              include: { rawContent: true, informationEvent: true },
+              include: { rawContent: true, informationEvent: true, author: true },
             });
             if (source) break;
           }

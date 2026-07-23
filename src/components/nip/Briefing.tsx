@@ -313,9 +313,9 @@ function QueueItemCard({ q, onResolve }: { q: any; onResolve?: (id: string, deci
             <>
               {detail.source && (
                 <div className="rounded bg-background/50 p-2">
-                  <div className="font-medium">{detail.source.handle}</div>
+                  <div className="font-medium">{detail.source.speaker || detail.source.author?.realName || detail.source.author?.handle || "Unknown source"}</div>
                   <div className="text-muted-foreground mt-0.5">
-                    Direction: {detail.source.direction || "—"} · Extracted: {detail.source.extractedText?.slice(0, 100) || "—"}
+                    Direction: {detail.source.direction || "—"} · {(detail.source.keyInsight || detail.source.verbatimQuote || "").slice(0, 100)}
                   </div>
                 </div>
               )}

@@ -702,14 +702,22 @@ export async function runLadderRecompute() {
       counts.reevaluated++;
 
       // Load linked events with sources + authors for counter computation (L7)
-      // eventIds is stored as JSON in Postgres — may come back as string or array
-      let eventIds: string[] = [];
+      // eventIds is stored as JSON in Postgres (jsonb) — may come back as:
+      //   - a JS array (if Prisma parsed it) → use directly
+      //   - a string like "[]" (if the jsonb contains a JSON string) → parse twice
+      //   - a string like '["id1","id2"]' (if the jsonb contains a JSON array) → parse once
+      let eventIds: any = t.eventIds;
       try {
-        eventIds = typeof t.eventIds === "string" ? JSON.parse(t.eventIds) : (t.eventIds as string[]) ?? [];
+        if (typeof eventIds === "string") {
+          eventIds = JSON.parse(eventIds); // first parse: string → JS value
+          if (typeof eventIds === "string") {
+            eventIds = JSON.parse(eventIds); // second parse: double-encoded
+          }
+        }
         if (!Array.isArray(eventIds)) eventIds = [];
       } catch { eventIds = []; }
-      const events = eventIds.length > 0 ? await db.informationEvent.findMany({
-        where: { id: { in: eventIds } },
+      const events: any[] = eventIds.length > 0 ? await db.informationEvent.findMany({
+        where: { id: { in: eventIds as string[] } },
         include: { sources: true },
       }) : [];
 
@@ -1152,10 +1160,15 @@ export async function runVerificationsMonitor() {
       });
 
       // Resolve linked QuantClaims
-      // metricIds is stored as JSON in Postgres — may come back as string or array
-      let metricIds: string[] = [];
+      // metricIds is stored as JSON in Postgres (jsonb) — may be double-encoded
+      let metricIds: any = ev.metricIds;
       try {
-        metricIds = typeof ev.metricIds === "string" ? JSON.parse(ev.metricIds) : (ev.metricIds as string[]) ?? [];
+        if (typeof metricIds === "string") {
+          metricIds = JSON.parse(metricIds);
+          if (typeof metricIds === "string") {
+            metricIds = JSON.parse(metricIds);
+          }
+        }
         if (!Array.isArray(metricIds)) metricIds = [];
       } catch { metricIds = []; }
       if (metricIds.length > 0) {

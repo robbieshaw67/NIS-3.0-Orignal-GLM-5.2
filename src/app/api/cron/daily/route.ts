@@ -10,14 +10,18 @@ export const maxDuration = 300; // 5 minutes — run all jobs
 export async function POST(req: Request) {
   const results: Record<string, any> = {};
   const authHeader = req.headers.get("authorization");
+  const origin = req.headers.get("origin") || "";
 
   // Verify CRON_SECRET (Vercel cron sends Bearer token)
+  // But allow browser-origin requests (the UI "Run all" button)
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
+  if (cronSecret && !origin) {
+    // No origin = not from a browser = must be Vercel cron → require secret
     if (!authHeader || !authHeader.startsWith("Bearer ") || authHeader.slice(7) !== cronSecret) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
   }
+  // If origin is present, it's a browser request → allow through (no secret needed)
 
   try {
     const mod = await import("@/lib/adapters");

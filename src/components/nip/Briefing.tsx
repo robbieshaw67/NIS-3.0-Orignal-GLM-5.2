@@ -91,10 +91,39 @@ function HealthStrip({ adapters, recentJobs }: { adapters: any[]; recentJobs: an
 }
 
 function IntakeDigest({ counts, recentJobs }: { counts: any; recentJobs: any[] }) {
-  // Synthesize opening→delta→closing from counts + last job runs
+  // Compute real deltas from job run counts
   const newToday = recentJobs
     .filter(j => j.status === "DONE")
     .reduce((s, j) => s + ((j.counts as any)?.new ?? 0), 0);
+
+  // Real new events from the events pipeline job
+  const eventsJob = recentJobs.find(j => j.job === "pipeline:events" && j.status === "DONE");
+  const newEvents = (eventsJob?.counts as any)?.new_events ?? 0;
+
+  // Real promotions/demotions from the ladder job
+  const ladderJob = recentJobs.find(j => j.job === "engine:ladder" && j.status === "DONE");
+  const promoted = (ladderJob?.counts as any)?.promoted ?? 0;
+  const demoted = (ladderJob?.counts as any)?.demoted ?? 0;
+
+  // Real new claims from debates job (directionCreated + stanceCollisionCreated)
+  const debatesJob = recentJobs.find(j => j.job === "pipeline:debates" && j.status === "DONE");
+  const newClaims = ((debatesJob?.counts as any)?.directionCreated ?? 0) + ((debatesJob?.counts as any)?.stanceCollisionCreated ?? 0);
+
+  // Thesis delta note
+  const thesisDelta = promoted + demoted;
+  const thesisNote = thesisDelta === 0
+    ? "no promotions or demotions in last 24h"
+    : `${promoted} promoted, ${demoted} demoted in last 24h`;
+
+  // Events delta note — show actual count, no hardcoded family name
+  const eventsNote = newEvents > 0
+    ? `${newEvents} new information event${newEvents > 1 ? "s" : ""} clustered`
+    : "no new events clustered";
+
+  // Claims delta note
+  const claimsNote = newClaims > 0
+    ? `${newClaims} new claim${newClaims > 1 ? "s" : ""} from debate detection`
+    : "no new claims";
 
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -105,14 +134,14 @@ function IntakeDigest({ counts, recentJobs }: { counts: any; recentJobs: any[] }
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <ReconLine opening={counts.sources - newToday} delta={newToday} closing={counts.sources} label="sources" deltaNote={`${newToday} new extractions today`} />
-        <ReconLine opening={counts.events} delta={1} closing={counts.events} label="events" deltaNote="1 new information event clustered (DRAM Q3 collection)" />
-        <ReconLine opening={counts.theses} delta={0} closing={counts.theses} label="theses" deltaNote="no promotions or demotions in last 24h" />
-        <ReconLine opening={counts.claims} delta={1} closing={counts.claims} label="claims" deltaNote="1 new QuantClaim (BofA Q3 DRAM)" />
+        <ReconLine opening={counts.events} delta={newEvents} closing={counts.events} label="events" deltaNote={eventsNote} />
+        <ReconLine opening={counts.theses} delta={thesisDelta} closing={counts.theses} label="theses" deltaNote={thesisNote} />
+        <ReconLine opening={counts.claims} delta={newClaims} closing={counts.claims} label="claims" deltaNote={claimsNote} />
       </div>
       <div className="mt-3 pt-3 border-t text-[10px] text-muted-foreground space-y-1">
         <div className="flex items-center gap-1.5">
           <TrendingDown className="h-3 w-3" />
-          <span>{counts.armedFalsifiers} falsifiers ARMED · {counts.partialFalsifiers} PARTIAL (China InP event-family)</span>
+          <span>{counts.armedFalsifiers} falsifiers ARMED · {counts.partialFalsifiers} PARTIAL · {counts.firedFalsifiers} FIRED</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Inbox className="h-3 w-3" />

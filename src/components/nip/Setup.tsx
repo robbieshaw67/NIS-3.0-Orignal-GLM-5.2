@@ -26,7 +26,9 @@ interface SetupProps {
 type MediaTab = "all" | "x" | "rss" | "channels" | "anchors";
 
 function SourceCard({ author }: { author: any }) {
-  const [paused, setPaused] = React.useState(!author.active);
+  // Author table has no 'active' column — default to not paused (active)
+  // Only show paused if explicitly set via SourceList toggle
+  const [paused, setPaused] = React.useState(false);
 
   const togglePause = async () => {
     const newActive = paused; // if currently paused, we want to resume (active=true)

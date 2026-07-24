@@ -652,6 +652,225 @@ function BatchForensics({ rawContents = [] }: { rawContents?: any[] }) {
   );
 }
 
+// ── VLM Image Gallery — shows ingested images + VLM analysis results ──
+function VLMImageGallery() {
+  const [data, setData] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [filter, setFilter] = React.useState<"all" | "PENDING" | "RATIFIED" | "PENDING_RETRY">("all");
+  const [selected, setSelected] = React.useState<string | null>(null);
+
+  const fetch_ = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/images/list?status=${filter}`);
+      const d = await r.json();
+      if (d.ok) setData(d);
+    } catch {}
+    setLoading(false);
+  }, [filter]);
+
+  React.useEffect(() => { fetch_(); }, [fetch_]);
+
+  const summary = data?.summary;
+  const images = data?.images || [];
+  const selectedImg = images.find((i: any) => i.id === selected);
+
+  const ratify = async (imageId: string, decision: "RATIFIED" | "REJECTED") => {
+    try {
+      const r = await fetch("/api/vlm/ratify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageId, decision }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        toast.success(`Image ${decision.toLowerCase()}`);
+        fetch_();
+      } else {
+        toast.error(`Ratification failed: ${d.error}`);
+      }
+    } catch {
+      toast.error("Ratification failed");
+    }
+  };
+
+  const runVLM = async () => {
+    try {
+      const r = await fetch("/api/jobs.vlm", { method: "POST" });
+      const d = await r.json();
+      if (d.ok) {
+        toast.success(`VLM processed ${d.counts?.processed ?? 0} images (${d.counts?.mismatched ?? 0} mismatched)`);
+        fetch_();
+      } else {
+        toast.error(`VLM job failed: ${d.error}`);
+      }
+    } catch {
+      toast.error("VLM job failed");
+    }
+  };
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-1.5">
+          <ImagePlus className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">VLM image gallery</h3>
+          {summary && (
+            <span className="text-[10px] text-muted-foreground">
+              {summary.total} images · {summary.charts} charts · {summary.tables} tables · {summary.mismatched} mismatched
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={runVLM}>
+            <Play className="h-2.5 w-2.5 mr-1" /> Run VLM
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={fetch_} disabled={loading}>
+            <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1 mb-3">
+        {(["all", "PENDING", "PENDING_RETRY", "RATIFIED"] as const).map(f => (
+          <Button
+            key={f}
+            size="sm"
+            variant={filter === f ? "default" : "outline"}
+            className="h-6 text-[10px] px-2"
+            onClick={() => setFilter(f)}
+          >
+            {f === "PENDING_RETRY" ? "RETRY" : f}
+            {summary && f === "all" && ` (${summary.total})`}
+            {summary && f === "PENDING" && ` (${summary.pending})`}
+            {summary && f === "PENDING_RETRY" && ` (${summary.retry})`}
+            {summary && f === "RATIFIED" && ` (${summary.ratified})`}
+          </Button>
+        ))}
+      </div>
+
+      {/* Image grid */}
+      {images.length === 0 ? (
+        <div className="text-[11px] text-muted-foreground italic py-4 text-center">
+          No images ingested yet. Drop images in the Visual Intake above.
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[400px] overflow-y-auto">
+          {images.map((img: any) => (
+            <div
+              key={img.id}
+              className={cn(
+                "rounded border p-2 text-[10px] cursor-pointer transition-colors",
+                selected === img.id ? "border-primary bg-primary/5" : "hover:bg-muted/20",
+                img.discrepancyFlag === "DUAL_ROUTE_MISMATCH" && "border-red-500/30 bg-red-500/5",
+              )}
+              onClick={() => setSelected(selected === img.id ? null : img.id)}
+            >
+              {/* Image thumbnail */}
+              {img.imageUrl ? (
+                <img
+                  src={img.imageUrl.startsWith("data:") ? img.imageUrl : img.imageUrl}
+                  alt="ingested"
+                  className="w-full h-20 object-cover rounded mb-1.5"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              ) : (
+                <div className="w-full h-20 bg-muted/30 rounded mb-1.5 flex items-center justify-center">
+                  <ImagePlus className="h-5 w-5 text-muted-foreground/50" />
+                </div>
+              )}
+
+              {/* Classification + status */}
+              <div className="flex items-center justify-between mb-1">
+                <Badge variant="outline" className={cn(
+                  "text-[8px] h-3",
+                  img.classifierClass === "CHART" && "bg-blue-500/10 text-blue-700",
+                  img.classifierClass === "TABLE" && "bg-purple-500/10 text-purple-700",
+                  img.classifierClass === "OTHER" && "bg-muted/30",
+                )}>
+                  {img.classifierClass}
+                </Badge>
+                <Badge variant="outline" className={cn(
+                  "text-[8px] h-3",
+                  img.ratificationStatus === "RATIFIED" && "bg-emerald-500/10 text-emerald-700",
+                  img.ratificationStatus === "PENDING" && "bg-amber-500/10 text-amber-700",
+                  img.ratificationStatus === "PENDING_RETRY" && "bg-red-500/10 text-red-700",
+                )}>
+                  {img.ratificationStatus}
+                </Badge>
+              </div>
+
+              {/* Virality */}
+              {img.viralityCount > 1 && (
+                <div className="text-[9px] text-muted-foreground">↻ {img.viralityCount}× seen</div>
+              )}
+              {img.discrepancyFlag === "DUAL_ROUTE_MISMATCH" && (
+                <div className="text-[9px] text-red-600 dark:text-red-400 font-medium">⚠ Mismatch</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Selected image detail */}
+      {selectedImg && (
+        <div className="mt-3 pt-3 border-t space-y-2">
+          <div className="text-[11px] font-medium">Image analysis detail</div>
+
+          {selectedImg.imageUrl && (
+            <img
+              src={selectedImg.imageUrl.startsWith("data:") ? selectedImg.imageUrl : selectedImg.imageUrl}
+              alt="selected"
+              className="max-h-48 rounded border"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          )}
+
+          <div className="grid grid-cols-2 gap-2 text-[10px]">
+            <div className="rounded bg-muted/20 p-2">
+              <div className="font-medium mb-1">Annotation route</div>
+              <div>Value: {selectedImg.annotation?.valueLow ?? "—"} – {selectedImg.annotation?.valueHigh ?? "—"}</div>
+              <div>Unit: {selectedImg.annotation?.unit || "—"}</div>
+              <div>Horizon: {selectedImg.annotation?.horizon || "—"}</div>
+              {selectedImg.annotation?.printedSource && (
+                <div>Source: {selectedImg.annotation.printedSource}</div>
+              )}
+            </div>
+            <div className="rounded bg-muted/20 p-2">
+              <div className="font-medium mb-1">Axis-read route</div>
+              <div>Value: {selectedImg.axisRead?.valueLow ?? "—"} – {selectedImg.axisRead?.valueHigh ?? "—"}</div>
+              <div>Unit: {selectedImg.axisRead?.unit || "—"}</div>
+              <div>Horizon: {selectedImg.axisRead?.horizon || "—"}</div>
+              {selectedImg.axisRead?.printedSource && (
+                <div>Source: {selectedImg.axisRead.printedSource}</div>
+              )}
+            </div>
+          </div>
+
+          {selectedImg.parentUrl && (
+            <a href={selectedImg.parentUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-[9px]">
+              Open parent content ↗
+            </a>
+          )}
+
+          {/* Ratification buttons */}
+          {(selectedImg.ratificationStatus === "PENDING" || selectedImg.ratificationStatus === "PENDING_RETRY") && (
+            <div className="flex gap-1.5">
+              <Button size="sm" className="h-7 text-xs" onClick={() => ratify(selectedImg.id, "RATIFIED")}>
+                <CheckCircle2 className="h-3 w-3 mr-1" /> Ratify
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => ratify(selectedImg.id, "REJECTED")}>
+                <AlertTriangle className="h-3 w-3 mr-1" /> Reject
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Extraction Log — shows what was extracted + job run history ──
 function ExtractionLog() {
   const [range, setRange] = React.useState<"1h" | "24h" | "7d" | "30d">("24h");
@@ -835,6 +1054,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
             <BatchForensics rawContents={rawContents} />
           </div>
           <div className="space-y-4">
+            <VLMImageGallery />
             <ExtractionLog />
             <AdapterStatus adapters={adapterHealth} watermarks={watermarks ?? []} onAdapterRun={onAdapterRun} />
             <ReExtractionConsole

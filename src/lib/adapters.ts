@@ -395,8 +395,9 @@ export async function runRssAdapter() {
 
 const X_HANDLES = [
   { handle: "dylan522p", realName: "Dylan Patel" },
-  { handle: "jukan137reform", realName: "Jukan Kazuya" },
+  { handle: "edzitron", realName: "Ed Zitron" },
   { handle: "citrini7", realName: "Citrini Research" },
+  { handle: "jukan137reform", realName: "Jukan Kazuya" },
 ];
 
 export async function runXAdapter() {
@@ -476,7 +477,10 @@ export async function runXAdapter() {
           }
 
           // Extract using the triage + deep extract pipeline
-          const author = await db.author.findUnique({ where: { handle: h.handle } });
+          // Try handle with and without @ prefix (DB may have either)
+          const author = await db.author.findUnique({ where: { handle: h.handle } })
+            .catch(() => null)
+            ?? await db.author.findUnique({ where: { handle: `@${h.handle}` } }).catch(() => null);
           if (author) {
             const result = await triageAndExtract(bodyText, author.id, rawId);
             if (!result.skipped) {

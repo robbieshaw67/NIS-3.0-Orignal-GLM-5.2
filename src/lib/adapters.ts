@@ -394,8 +394,9 @@ export async function runRssAdapter() {
 // ─────────────────────────────────────────────────────────────────────
 
 const X_HANDLES = [
-  { handle: "jukan_137", realName: "Jukan Kazuya" },
-  { handle: "eugene_loh", realName: "Eugene Loh" },
+  { handle: "dylan522p", realName: "Dylan Patel" },
+  { handle: "jukan137reform", realName: "Jukan Kazuya" },
+  { handle: "citrini7", realName: "Citrini Research" },
 ];
 
 export async function runXAdapter() {

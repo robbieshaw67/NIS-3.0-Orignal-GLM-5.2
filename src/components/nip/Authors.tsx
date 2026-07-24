@@ -6,9 +6,11 @@
 
 import * as React from "react";
 import {
-  TrendingUp, TrendingDown, Award, BookMarked, Users2,
+  TrendingUp, TrendingDown, Award, BookMarked, Users2, Search,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AuthorChip, CompositionBadge, DirectionArrow, EvidenceLink } from "./grammar";
 import { getAuthorityWeight, hasAuthorityFloor } from "@/lib/author";
@@ -155,7 +157,36 @@ function AuthorCard({ author }: { author: any }) {
 }
 
 export function Authors({ authors }: AuthorsProps) {
-  const grouped = groupByOrg(authors);
+  const [search, setSearch] = React.useState("");
+  const [classFilter, setClassFilter] = React.useState<string>("all");
+
+  // Get all epistemic classes for the filter
+  const allClasses = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const a of authors) {
+      if (a.epistemicClass) s.add(a.epistemicClass);
+    }
+    return Array.from(s).sort();
+  }, [authors]);
+
+  const filtered = React.useMemo(() => {
+    let list = authors;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(a =>
+        a.handle?.toLowerCase().includes(q) ||
+        a.realName?.toLowerCase().includes(q) ||
+        a.orgAffiliation?.toLowerCase().includes(q) ||
+        a.bio?.toLowerCase().includes(q)
+      );
+    }
+    if (classFilter !== "all") {
+      list = list.filter(a => a.epistemicClass === classFilter);
+    }
+    return list;
+  }, [authors, search, classFilter]);
+
+  const grouped = groupByOrg(filtered);
 
   return (
     <div className="flex flex-col h-full">
@@ -170,28 +201,76 @@ export function Authors({ authors }: AuthorsProps) {
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-4 max-w-7xl mx-auto space-y-5">
-          {grouped.map(([org, group]) => (
-            <div key={org}>
-              <div className="flex items-center gap-2 mb-2">
-                <Users2 className="h-3.5 w-3.5 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{org}</h3>
-                <Badge variant="outline" className="text-[10px] h-4">
-                  {group.length} author{group.length > 1 ? "s" : ""}
-                </Badge>
-                {group.length > 1 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    · same org → never independent of each other (L5)
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {group.map(a => (
-                  <AuthorCard key={a.id} author={a} />
-                ))}
-              </div>
+        <div className="p-4 max-w-7xl mx-auto space-y-4">
+          {/* Search + filter controls */}
+          <div className="flex items-center gap-2 sticky top-0 bg-card/80 backdrop-blur z-10 pb-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by handle, name, org, or bio…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8 h-9"
+              />
             </div>
-          ))}
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant={classFilter === "all" ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => setClassFilter("all")}
+              >
+                All ({authors.length})
+              </Button>
+              {allClasses.map(cls => (
+                <Button
+                  key={cls}
+                  size="sm"
+                  variant={classFilter === cls ? "default" : "outline"}
+                  className="h-7 text-[10px] px-2"
+                  onClick={() => setClassFilter(cls)}
+                >
+                  {cls.replace(/_/g, " ")}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Results count */}
+          <div className="text-[10px] text-muted-foreground">
+            {filtered.length} of {authors.length} authors
+            {search && ` matching "${search}"`}
+            {classFilter !== "all" && ` in class ${classFilter}`}
+          </div>
+
+          {/* Author cards grouped by org */}
+          {grouped.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-12">
+              No authors match this filter.
+            </div>
+          ) : (
+            grouped.map(([org, group]) => (
+              <div key={org}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Users2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{org}</h3>
+                  <Badge variant="outline" className="text-[10px] h-4">
+                    {group.length} author{group.length > 1 ? "s" : ""}
+                  </Badge>
+                  {group.length > 1 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      · same org → never independent of each other (L5)
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {group.map(a => (
+                    <AuthorCard key={a.id} author={a} />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </ScrollArea>
     </div>

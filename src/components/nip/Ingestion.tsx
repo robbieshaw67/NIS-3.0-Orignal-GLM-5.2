@@ -8,8 +8,8 @@
 import * as React from "react";
 import {
   Upload, ImagePlus, Clipboard, RefreshCw, AlertTriangle,
-  FileSearch, Settings2, History, Play, CheckCircle2, Database,
-  Layers3, Activity, Mic2,
+  FileSearch, Settings2, Play, CheckCircle2, Database,
+  Layers3, Activity, Mic2, History,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -652,6 +652,169 @@ function BatchForensics({ rawContents = [] }: { rawContents?: any[] }) {
   );
 }
 
+// ── Extraction Log — shows what was extracted + job run history ──
+function ExtractionLog() {
+  const [range, setRange] = React.useState<"1h" | "24h" | "7d" | "30d">("24h");
+  const [data, setData] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [expandedAdapter, setExpandedAdapter] = React.useState<string | null>(null);
+
+  const fetch_ = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/extractions?range=${range}`);
+      const d = await r.json();
+      if (d.ok) setData(d);
+    } catch {}
+    setLoading(false);
+  }, [range]);
+
+  React.useEffect(() => { fetch_(); }, [fetch_]);
+
+  const summary = data?.summary;
+  const byAdapter = data?.byAdapter || {};
+  const jobRuns = data?.jobRuns || [];
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-1.5">
+          <History className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Extraction log</h3>
+          {summary && (
+            <span className="text-[10px] text-muted-foreground">
+              {summary.totalRawContents} items · {summary.totalJobRuns} jobs ({summary.successCount}✓ {summary.failedCount}✗)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {(["1h", "24h", "7d", "30d"] as const).map(r => (
+            <Button
+              key={r}
+              size="sm"
+              variant={range === r ? "default" : "outline"}
+              className="h-6 text-[10px] px-2"
+              onClick={() => setRange(r)}
+            >
+              {r}
+            </Button>
+          ))}
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={fetch_} disabled={loading}>
+            <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary by adapter type */}
+      {summary && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
+          {Object.entries(summary.byAdapter).map(([type, count]: [string, any]) => (
+            <div key={type} className="rounded bg-muted/20 p-2 text-center">
+              <div className="text-[10px] text-muted-foreground truncate">{type}</div>
+              <div className="font-semibold tabular-nums text-sm">{count}</div>
+            </div>
+          ))}
+          {Object.keys(summary.byAdapter).length === 0 && (
+            <div className="col-span-full text-[11px] text-muted-foreground italic text-center py-2">
+              No extractions in this period.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Extractions by adapter (expandable) */}
+      <div className="space-y-1.5 mb-3">
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Extractions by adapter</div>
+        {Object.entries(byAdapter).map(([type, items]: [string, any]) => (
+          <div key={type} className="rounded border bg-muted/10">
+            <button
+              className="w-full flex items-center justify-between px-2 py-1.5 text-xs hover:bg-muted/20"
+              onClick={() => setExpandedAdapter(expandedAdapter === type ? null : type)}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px]">{type}</span>
+                <Badge variant="outline" className="text-[9px] h-3.5">{items.length}</Badge>
+                <span className="text-[10px] text-muted-foreground">
+                  latest: {items[0] ? new Date(items[0].fetchedAt).toLocaleString() : "—"}
+                </span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {expandedAdapter === type ? "▲" : "▼"}
+              </span>
+            </button>
+            {expandedAdapter === type && (
+              <div className="border-t space-y-1 p-2 max-h-[300px] overflow-y-auto">
+                {items.map((item: any) => (
+                  <div key={item.id} className="rounded bg-background/50 p-2 text-[10px]">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-medium truncate">{item.title}</span>
+                      <Badge variant="outline" className={cn(
+                        "text-[8px] h-3",
+                        item.extractionStatus === "EXTRACTED" && "bg-emerald-500/10 text-emerald-700",
+                        item.extractionStatus === "PENDING" && "bg-amber-500/10 text-amber-700",
+                        item.extractionStatus === "FAILED" && "bg-red-500/10 text-red-700",
+                      )}>
+                        {item.extractionStatus}
+                      </Badge>
+                    </div>
+                    <div className="text-muted-foreground">
+                      {new Date(item.fetchedAt).toLocaleString()} · {item.adapterVersion}
+                    </div>
+                    {item.bodyPreview && (
+                      <div className="text-muted-foreground mt-1 line-clamp-2">{item.bodyPreview}</div>
+                    )}
+                    {item.url && item.url !== "#" && (
+                      <a href={item.url} target="_blank" rel="noreferrer" className="text-primary hover:underline text-[9px]">
+                        Open original ↗
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Job run history */}
+      <div className="space-y-1.5">
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Job run history</div>
+        <div className="max-h-[250px] overflow-y-auto space-y-1">
+          {jobRuns.map((j: any) => {
+            const counts = j.counts || {};
+            const countStr = Object.entries(counts).slice(0, 3).map(([k, v]: any) => `${k}:${v}`).join(" · ");
+            return (
+              <div key={j.id} className={cn(
+                "rounded border px-2 py-1.5 text-[10px] flex items-start justify-between gap-2",
+                j.status === "DONE" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20",
+              )}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    {j.status === "DONE" ? (
+                      <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-2.5 w-2.5 text-red-500 shrink-0" />
+                    )}
+                    <span className="font-mono">{j.job}</span>
+                    <span className="text-muted-foreground">{new Date(j.startedAt).toLocaleString()}</span>
+                  </div>
+                  {countStr && <div className="text-muted-foreground mt-0.5 ml-4">{countStr}</div>}
+                  {j.error && <div className="text-red-600 dark:text-red-400 mt-0.5 ml-4 line-clamp-2">{j.error.slice(0, 150)}</div>}
+                </div>
+              </div>
+            );
+          })}
+          {jobRuns.length === 0 && (
+            <div className="text-[11px] text-muted-foreground italic text-center py-2">
+              No jobs ran in this period.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function IngestionConsole({ adapterHealth, rawContents, watermarks, counts, onAdapterRun, onReextract, onApply }: IngestionProps) {
   return (
     <div className="flex flex-col h-full">
@@ -659,7 +822,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
         <div className="max-w-7xl mx-auto">
           <h2 className="text-lg font-semibold">Ingestion console</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Visual intake · source list manager · adapters · re-extraction console (CP10) · batch forensics.
+            Visual intake · source list manager · adapters · extraction log · re-extraction console (CP10) · batch forensics.
           </p>
         </div>
       </div>
@@ -672,6 +835,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
             <BatchForensics rawContents={rawContents} />
           </div>
           <div className="space-y-4">
+            <ExtractionLog />
             <AdapterStatus adapters={adapterHealth} watermarks={watermarks ?? []} onAdapterRun={onAdapterRun} />
             <ReExtractionConsole
               rawContents={rawContents}

@@ -526,8 +526,8 @@ function JobRegistry({ recentJobs }: { recentJobs: any[] }) {
 
 export function DeltaBriefing({ adapterHealth, recentJobs, queue, counts, onResolveQueue, onReseed }: BriefingProps) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0 p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold">Delta briefing</h2>
@@ -541,7 +541,7 @@ export function DeltaBriefing({ adapterHealth, recentJobs, queue, counts, onReso
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 max-w-7xl mx-auto space-y-4">
           <HealthStrip adapters={adapterHealth} recentJobs={recentJobs} />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -550,7 +550,7 @@ export function DeltaBriefing({ adapterHealth, recentJobs, queue, counts, onReso
           </div>
           <JobRegistry recentJobs={recentJobs} />
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

@@ -1036,8 +1036,8 @@ function ExtractionLog() {
 
 export function IngestionConsole({ adapterHealth, rawContents, watermarks, counts, onAdapterRun, onReextract, onApply }: IngestionProps) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0 p-4">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-lg font-semibold">Ingestion console</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -1046,7 +1046,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
           <div className="space-y-4">
             <VisualIntake />
@@ -1065,7 +1065,7 @@ export function IngestionConsole({ adapterHealth, rawContents, watermarks, count
             />
           </div>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

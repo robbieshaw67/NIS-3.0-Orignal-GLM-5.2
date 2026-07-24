@@ -189,8 +189,8 @@ export function Authors({ authors }: AuthorsProps) {
   const grouped = groupByOrg(filtered);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0 p-4">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-lg font-semibold">Authors</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -200,7 +200,7 @@ export function Authors({ authors }: AuthorsProps) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 max-w-7xl mx-auto space-y-4">
           {/* Search + filter controls */}
           <div className="flex items-center gap-2 sticky top-0 bg-card/80 backdrop-blur z-10 pb-2">
@@ -272,7 +272,7 @@ export function Authors({ authors }: AuthorsProps) {
             ))
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

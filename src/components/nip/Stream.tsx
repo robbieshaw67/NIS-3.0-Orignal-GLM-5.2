@@ -250,7 +250,7 @@ export function Stream({ rawContents, authors }: StreamProps) {
   }, [rawContents, view, search]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
         <div className="flex flex-col gap-2 p-3">
           <div className="flex items-center gap-2">
@@ -282,7 +282,7 @@ export function Stream({ rawContents, authors }: StreamProps) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-3 sm:p-4 space-y-3 max-w-3xl mx-auto">
           {filtered.length === 0 ? (
             <div className="text-center text-sm text-muted-foreground py-12">
@@ -309,7 +309,7 @@ export function Stream({ rawContents, authors }: StreamProps) {
             })
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

@@ -374,8 +374,8 @@ export function ThesisBoard({ theses, verificationEvents, onRuleEngagement, onPr
   }));
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0 p-4">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-lg font-semibold">Thesis Board</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -385,7 +385,7 @@ export function ThesisBoard({ theses, verificationEvents, onRuleEngagement, onPr
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 max-w-7xl mx-auto">
             {byStage.map(col => (
@@ -423,7 +423,7 @@ export function ThesisBoard({ theses, verificationEvents, onRuleEngagement, onPr
             ))}
           </div>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

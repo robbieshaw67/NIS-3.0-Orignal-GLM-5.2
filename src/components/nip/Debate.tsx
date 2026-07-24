@@ -265,9 +265,9 @@ export function DebatePage({ debate, authorsById }: DebateProps) {
     : [];
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* header */}
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 p-4">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-start justify-between gap-3 mb-2">
             <div className="flex items-center gap-2">
@@ -288,7 +288,7 @@ export function DebatePage({ debate, authorsById }: DebateProps) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 max-w-6xl mx-auto space-y-4">
           {/* Range bar for magnitude debates */}
           {rangeData.length > 0 && (
@@ -358,7 +358,7 @@ export function DebatePage({ debate, authorsById }: DebateProps) {
             </>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

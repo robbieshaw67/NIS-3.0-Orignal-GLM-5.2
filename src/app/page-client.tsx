@@ -451,7 +451,7 @@ export function PageClient() {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 min-w-0 flex flex-col pt-12 md:pt-0">
+      <main className="flex-1 min-w-0 min-h-0 flex flex-col pt-12 md:pt-0 overflow-hidden">
         {renderRoom()}
       </main>
     </div>

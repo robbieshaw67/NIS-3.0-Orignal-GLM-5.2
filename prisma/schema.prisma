@@ -197,6 +197,7 @@ model IngestedImage {
   parentRawId     String?
   parentRaw       RawContent? @relation(fields: [parentRawId], references: [id])
   storageRef      String
+  imageUrl        String?  // URL or base64 data — needed for VLM analysis
   classifierClass String   // CHART|TABLE|TEXT_SCREENSHOT|OTHER
   annotationRoute Json     @default("\"{}\"") // VLM call 1 result
   axisReadRoute   Json     @default("\"{}\"") // VLM call 2 result

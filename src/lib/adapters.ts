@@ -400,7 +400,7 @@ const X_HANDLES = [
 
 export async function runXAdapter() {
   const jobRun = await startJobRun("adapters:x");
-  const counts = { fetched: 0, new: 0, deduped: 0, threads: 0, extracted: 0, rateLimited: 0 };
+  const counts = { fetched: 0, new: 0, deduped: 0, threads: 0, extracted: 0, rateLimited: 0, errors: 0 };
 
   try {
     // Merge DB-managed sources with hardcoded fallback
@@ -410,95 +410,147 @@ export async function runXAdapter() {
       ...X_HANDLES,
     ].filter((v, i, a) => a.findIndex(x => x.handle === v.handle) === i);
 
+    // Import the real scraper
+    const { fetchTweets } = await import("./x-scraper");
+
     for (const h of allHandles) {
       const wm = await getWatermark("X", h.handle);
       counts.fetched++;
 
-      const preflight = await preflightCheck("X", h.handle);
-      if (!preflight.ok) {
-        counts.rateLimited++;
-        // L3: rate-limit is a RETRY, not a verdict — queue item, don't classify
-        await db.queueItem.create({
-          data: {
-            type: "ALERT",
-            priority: 5,
-            summary: `X adapter: ${h.handle} rate-limited; will retry next batch`,
-            payload: { handle: h.handle, cause: preflight.cause } as any,
-            status: "OPEN",
-          },
-        });
-        continue;
-      }
+      try {
+        // Fetch real tweets from X GraphQL API
+        const result = await fetchTweets(h.handle, 10, wm?.lastExternalId);
 
-      const newTweetId = `x:${h.handle}:${Date.now()}`;
-      const alreadySeen = wm?.lastExternalId === newTweetId;
-      if (alreadySeen) { counts.deduped++; continue; }
-
-      // Generate varied synthetic content per handle (demo mode)
-      // In production, the Nitter scraper would return real tweets here.
-      const synthTemplates: Record<string, string> = {
-        dpatel: `DRAM Q3 contract prices tracking +40-50% QoQ increase. Samsung and SK Hynix both guiding tightness through Q4. HBM3e demand pulling DDR5 mix favorably.`,
-        jukan_137: `TSMC capacity updates — N3 node fully booked through Q1 2027. Apple, Qualcomm, and MediaTek all competing for allocation. 3nm revenue mix climbing to mid-teens by year-end.`,
-        eugene_loh: `RT @bofa: We see semiconductor capex recovery H2 2026 driven by AI infrastructure build-out. Memory and logic both participating. Raising MU, KLAC estimates.`,
-      };
-      const defaultTemplate = `New signal on semiconductor supply chain. Monitoring channel inventory levels and pricing trends. No change to prior stance.`;
-      const bodyText = `@${h.handle}:\n\n${synthTemplates[h.handle] || defaultTemplate}`;
-      const threadId = h.handle === "jukan_137" ? `thread:${h.handle}:${Date.now()}` : undefined;
-      if (threadId) counts.threads++;
-
-      const { id: rawId, created } = await storeRaw({
-        url: `https://x.com/${h.handle}/status/${newTweetId}`,
-        title: `${h.handle} — tweet`,
-        bodyText,
-        adapterType: "X",
-        adapterVersion: "scraper-v1",
-        threadId,
-        referencesUrl: h.handle === "eugene_loh" ? "https://x.com/bofa/status/prev" : undefined,
-        referenceType: h.handle === "eugene_loh" ? "RT" : "NONE",
-      });
-
-      if (!created) { counts.deduped++; continue; }
-      counts.new++;
-
-      const author = await db.author.findUnique({ where: { handle: h.handle } });
-      if (author) {
-        const result = await triageAndExtract(bodyText, author.id, rawId);
-        if (!result.skipped) {
-          counts.extracted++;
-          await db.source.create({
+        if (result.error) {
+          counts.errors++;
+          // L3: rate-limit is a RETRY, not a verdict — queue item, don't classify
+          await db.queueItem.create({
             data: {
-              rawContentId: rawId,
-              extractionVersion: "deep_extract/v3",
-              authorId: author.id,
-              dateIso: result.extracted!.dateIso,
-              dateEarliest: result.extracted!.dateEarliest,
-              dateLatest: result.extracted!.dateLatest,
-              direction: result.extracted!.direction,
-              conviction: result.extracted!.conviction,
-              confidence: result.extracted!.confidence,
-              insightType: result.extracted!.insightType,
-              verbatimQuote: result.extracted!.verbatimQuote,
-              keyInsight: result.extracted!.keyInsight,
-              tickers: result.extracted!.tickers as any,
-              entities: result.extracted!.entities as any,
-              independenceClass: "UNCLASSIFIED",
-              spanStart: result.extracted!.spanStart,
-              spanEnd: result.extracted!.spanEnd,
-              spanConfidence: result.extracted!.spanConfidence,
+              type: "ALERT",
+              priority: 5,
+              summary: `X adapter: @${h.handle} fetch failed — ${result.error}. Will retry next batch.`,
+              payload: { handle: h.handle, cause: result.error } as any,
+              status: "OPEN",
             },
           });
-          await db.rawContent.update({ where: { id: rawId }, data: { extractionStatus: "EXTRACTED" } });
+          continue;
         }
-      }
 
-      await setWatermark("X", h.handle, { lastExternalId: newTweetId });
+        if (result.tweets.length === 0) {
+          counts.deduped++;
+          continue;
+        }
+
+        // Process each tweet
+        let newestId = "";
+        for (const tweet of result.tweets) {
+          // Skip if already seen (watermark check)
+          if (wm?.lastExternalId && BigInt(tweet.id) <= BigInt(wm.lastExternalId)) {
+            counts.deduped++;
+            continue;
+          }
+
+          // Build the body text
+          const bodyText = `@${h.handle}:\n\n${tweet.text}`;
+          const threadId = tweet.replyTo ? `thread:${h.handle}:${tweet.id}` : undefined;
+          if (threadId) counts.threads++;
+
+          const { id: rawId, created } = await storeRaw({
+            url: tweet.url,
+            title: `@${h.handle} — tweet ${tweet.id}`,
+            bodyText,
+            adapterType: "X",
+            adapterVersion: "x-graphql-v1",
+            threadId,
+            referencesUrl: tweet.retweetOf ? `https://x.com/i/status/${tweet.retweetOf}` : undefined,
+            referenceType: tweet.retweetOf ? "RT" : tweet.replyTo ? "REPLY" : tweet.quoteTweetOf ? "QT" : "NONE",
+          });
+
+          if (!created) { counts.deduped++; continue; }
+          counts.new++;
+
+          // Track newest tweet ID for watermark
+          if (!newestId || BigInt(tweet.id) > BigInt(newestId)) {
+            newestId = tweet.id;
+          }
+
+          // Extract using the triage + deep extract pipeline
+          const author = await db.author.findUnique({ where: { handle: h.handle } });
+          if (author) {
+            const result = await triageAndExtract(bodyText, author.id, rawId);
+            if (!result.skipped) {
+              counts.extracted++;
+              await db.source.create({
+                data: {
+                  rawContentId: rawId,
+                  extractionVersion: "deep_extract/v3",
+                  authorId: author.id,
+                  dateIso: result.extracted!.dateIso,
+                  dateEarliest: result.extracted!.dateEarliest,
+                  dateLatest: result.extracted!.dateLatest,
+                  direction: result.extracted!.direction,
+                  conviction: result.extracted!.conviction,
+                  confidence: result.extracted!.confidence,
+                  insightType: result.extracted!.insightType,
+                  verbatimQuote: result.extracted!.verbatimQuote,
+                  keyInsight: result.extracted!.keyInsight,
+                  tickers: result.extracted!.tickers as any,
+                  entities: result.extracted!.entities as any,
+                  independenceClass: "UNCLASSIFIED",
+                  spanStart: result.extracted!.spanStart,
+                  spanEnd: result.extracted!.spanEnd,
+                  spanConfidence: result.extracted!.spanConfidence,
+                },
+              });
+              await db.rawContent.update({ where: { id: rawId }, data: { extractionStatus: "EXTRACTED" } });
+            }
+          }
+
+          // Ingest any images attached to the tweet (via direct DB call, not HTTP)
+          if (tweet.mediaUrls && tweet.mediaUrls.length > 0) {
+            for (const imageUrl of tweet.mediaUrls) {
+              try {
+                const { createHash } = await import("crypto");
+                const imageHash = createHash("sha256").update(imageUrl).digest("hex").slice(0, 32);
+                const existing = await db.ingestedImage.findUnique({ where: { imageHash } });
+                if (!existing) {
+                  await db.ingestedImage.create({
+                    data: {
+                      imageHash,
+                      parentRawId: rawId,
+                      storageRef: `images/url/${imageHash}`,
+                      imageUrl,
+                      classifierClass: "OTHER",
+                      confidence: "LOW",
+                      ratificationStatus: "PENDING",
+                      viralityCount: 1,
+                    },
+                  });
+                } else {
+                  await db.ingestedImage.update({
+                    where: { id: existing.id },
+                    data: { viralityCount: { increment: 1 } },
+                  });
+                }
+              } catch {}
+            }
+          }
+        }
+
+        // Update watermark with the newest tweet ID
+        if (newestId) {
+          await setWatermark("X", h.handle, { lastExternalId: newestId });
+        }
+      } catch (e: any) {
+        counts.errors++;
+        console.error(`X adapter error for @${h.handle}:`, e.message);
+      }
     }
 
-    await endJobRun(jobRun.id, counts.rateLimited > 0 && counts.new === 0 ? "FAILED" : "DONE", counts);
-    // AdapterHealth state — AMBER if all rate-limited, RED if no successful runs
-    const cause = counts.rateLimited > 0 ? `scraper rate-limited on ${counts.rateLimited} handles` : "";
-    await updateAdapterHealth("x", counts.rateLimited === 0, cause || undefined);
-    return { ok: counts.rateLimited === 0, counts };
+    await endJobRun(jobRun.id, counts.errors > 0 && counts.new === 0 ? "FAILED" : "DONE", counts);
+    const cause = counts.errors > 0 ? `${counts.errors} handles failed (see queue items)` : "";
+    await updateAdapterHealth("x", counts.new > 0 || counts.deduped > 0, cause || undefined);
+    return { ok: counts.errors === 0 || counts.new > 0, counts };
   } catch (e: any) {
     await endJobRun(jobRun.id, "FAILED", counts, e.message);
     await updateAdapterHealth("x", false, e.message);

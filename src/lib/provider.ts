@@ -66,15 +66,15 @@ export interface CompletionResult {
 // ─────────────────────────────────────────────────────────────────────
 
 const ROUTING: Record<TaskType, { provider: string; model: string; maxTokens: number; temperature: number }> = {
-  TRIAGE:                     { provider: "z-ai", model: "glm-4-flash",    maxTokens: 400,  temperature: 0.0 },
-  DEEP_EXTRACT:               { provider: "z-ai", model: "glm-4-plus",     maxTokens: 1800, temperature: 0.0 },
-  ADJUDICATE:                 { provider: "z-ai", model: "glm-4-plus",     maxTokens: 600,  temperature: 0.0 },
-  ASSESS:                     { provider: "z-ai", model: "glm-4-plus",     maxTokens: 600,  temperature: 0.1 },
-  CLASSIFY_IMAGE:             { provider: "z-ai", model: "glm-4v-flash",   maxTokens: 100,  temperature: 0.0 },
-  EXTRACT_CHART_ANNOTATIONS:  { provider: "z-ai", model: "glm-4v-plus",    maxTokens: 800,  temperature: 0.0 },
-  EXTRACT_CHART_AXIS:         { provider: "z-ai", model: "glm-4v-plus",    maxTokens: 800,  temperature: 0.0 },
-  NAME_DEBATE:                { provider: "z-ai", model: "glm-4-flash",    maxTokens: 200,  temperature: 0.3 },
-  DRAFT_STAKES:               { provider: "z-ai", model: "glm-4-plus",     maxTokens: 500,  temperature: 0.4 },
+  TRIAGE:                     { provider: "anthropic", model: "claude-haiku-4-5",    maxTokens: 400,  temperature: 0.0 },
+  DEEP_EXTRACT:               { provider: "anthropic", model: "claude-sonnet-4-5-20250514",     maxTokens: 1800, temperature: 0.0 },
+  ADJUDICATE:                 { provider: "anthropic", model: "claude-sonnet-4-5-20250514",     maxTokens: 600,  temperature: 0.0 },
+  ASSESS:                     { provider: "anthropic", model: "claude-sonnet-4-5-20250514",     maxTokens: 600,  temperature: 0.1 },
+  CLASSIFY_IMAGE:             { provider: "anthropic", model: "claude-haiku-4-5",   maxTokens: 100,  temperature: 0.0 },
+  EXTRACT_CHART_ANNOTATIONS:  { provider: "anthropic", model: "claude-sonnet-4-5-20250514",    maxTokens: 800,  temperature: 0.0 },
+  EXTRACT_CHART_AXIS:         { provider: "anthropic", model: "claude-sonnet-4-5-20250514",    maxTokens: 800,  temperature: 0.0 },
+  NAME_DEBATE:                { provider: "anthropic", model: "claude-haiku-4-5",    maxTokens: 200,  temperature: 0.3 },
+  DRAFT_STAKES:               { provider: "anthropic", model: "claude-sonnet-4-5-20250514",     maxTokens: 500,  temperature: 0.4 },
 };
 
 // ─────────────────────────────────────────────────────────────────────

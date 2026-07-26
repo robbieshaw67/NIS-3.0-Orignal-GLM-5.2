@@ -396,6 +396,7 @@ export async function completeVision(req: VisionRequest): Promise<CompletionResu
     );
 
     // Claude vision API with image URL
+    // Format: type='image' (NOT 'image_url'), source={ type: 'url', url: ... }
     const callPromise = client.messages.create({
       model: cfg.model,
       max_tokens: cfg.maxTokens,
@@ -404,7 +405,7 @@ export async function completeVision(req: VisionRequest): Promise<CompletionResu
         role: "user",
         content: [
           {
-            type: "image_url",
+            type: "image",
             source: {
               type: "url",
               url: imageUrl,

@@ -45,7 +45,8 @@ export interface CompletionRequest {
 }
 
 export interface VisionRequest extends CompletionRequest {
-  imageRef: string;      // storageRef
+  imageRef: string;      // storageRef or imageUrl
+  imageUrl?: string;    // direct image URL (preferred over imageRef)
 }
 
 export interface CompletionResult {
@@ -313,8 +314,147 @@ export async function complete(req: CompletionRequest): Promise<CompletionResult
 }
 
 export async function completeVision(req: VisionRequest): Promise<CompletionResult> {
-  // For the sandbox we treat vision the same as text — the abstraction is what matters
-  return complete(req);
+  const t0 = Date.now();
+  const cfg = ROUTING[req.taskType];
+
+  // Check cache first
+  const cacheKey = req.cacheKey
+    ? `${req.prompt.id}:${req.cacheKey}`
+    : `${req.prompt.id}:${hashKey(req.prompt.template + (req.imageUrl || req.imageRef))}`;
+
+  if (cache.has(cacheKey)) {
+    const hit = cache.get(cacheKey)!;
+    const { clean, stripped } = stripForbidden(JSON.parse(hit.raw));
+    return {
+      data: req.schema.parse(clean),
+      raw: hit.raw,
+      cacheHit: true,
+      tokensIn: hit.tokensIn,
+      tokensOut: hit.tokensOut,
+      latencyMs: Date.now() - t0,
+      costUsd: 0,
+      strippedFields: stripped,
+    };
+  }
+
+  // Resolve the image URL — either from req.imageUrl or by looking up the DB
+  let imageUrl = req.imageUrl;
+  if (!imageUrl && req.imageRef) {
+    // If imageRef looks like a URL, use it directly
+    if (req.imageRef.startsWith("http")) {
+      imageUrl = req.imageRef;
+    } else {
+      // Look up the image URL from the DB by storageRef
+      try {
+        const { db } = await import("./db");
+        const img = await db.ingestedImage.findFirst({
+          where: { storageRef: req.imageRef },
+          select: { imageUrl: true },
+        });
+        imageUrl = img?.imageUrl || undefined;
+      } catch {
+        imageUrl = undefined;
+      }
+    }
+  }
+
+  if (!imageUrl) {
+    // No image available — return PENDING_RETRY result
+    const mock = mockComplete(req);
+    mock.latencyMs = Date.now() - t0;
+    return mock;
+  }
+
+  const client = await getClient();
+
+  // Sandbox mode: no live LLM — return mock results
+  if (!client) {
+    const mock = mockComplete(req);
+    mock.latencyMs = Date.now() - t0;
+    cache.set(cacheKey, { raw: mock.raw, tokensIn: mock.tokensIn, tokensOut: mock.tokensOut });
+    logProviderCall({
+      taskType: req.taskType,
+      promptVersion: req.prompt.id,
+      provider: "mock",
+      model: "sandbox-mock",
+      tokens: mock.tokensIn + mock.tokensOut,
+      costUsd: 0,
+      latencyMs: mock.latencyMs,
+      cacheHit: false,
+    }).catch(() => {});
+    return mock;
+  }
+
+  // Production: send image + text to Claude's vision API
+  const sys = `You are part of the Narrative Intelligence Platform. Analyze the image and return JSON matching the schema exactly. Prompt version: ${req.prompt.id}`;
+  const userText = req.prompt.template + (req.prompt.params ? `\n\nParams: ${JSON.stringify(req.prompt.params)}` : "");
+
+  try {
+    let resp: any;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("vision-timeout-15s")), 15_000)
+    );
+
+    // Claude vision API with image URL
+    const callPromise = client.messages.create({
+      model: cfg.model,
+      max_tokens: cfg.maxTokens,
+      system: sys,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            source: {
+              type: "url",
+              url: imageUrl,
+            },
+          },
+          {
+            type: "text",
+            text: userText,
+          },
+        ],
+      }],
+    });
+
+    resp = await Promise.race([callPromise, timeoutPromise]);
+    const raw = resp.content?.[0]?.text ?? "";
+    const tokensIn = resp.usage?.input_tokens ?? 1000;
+    const tokensOut = resp.usage?.output_tokens ?? Math.ceil(raw.length / 4);
+
+    cache.set(cacheKey, { raw, tokensIn, tokensOut });
+
+    logProviderCall({
+      taskType: req.taskType,
+      promptVersion: req.prompt.id,
+      provider: "anthropic",
+      model: cfg.model,
+      tokens: tokensIn + tokensOut,
+      costUsd: estimateCost(cfg.model, tokensIn, tokensOut),
+      latencyMs: Date.now() - t0,
+      cacheHit: false,
+    }).catch(() => {});
+
+    const parsed = safeJsonParse(raw);
+    const { clean, stripped } = stripForbidden(parsed);
+
+    return {
+      data: req.schema.safeParse(clean).success ? req.schema.parse(clean) : clean,
+      raw,
+      cacheHit: false,
+      tokensIn,
+      tokensOut,
+      latencyMs: Date.now() - t0,
+      costUsd: estimateCost(cfg.model, tokensIn, tokensOut),
+      strippedFields: stripped,
+    };
+  } catch (e: any) {
+    // L3: errors are never verdicts — return PENDING_RETRY
+    const mock = mockComplete(req);
+    mock.latencyMs = Date.now() - t0;
+    return mock;
+  }
 }
 
 function safeJsonParse(s: string): unknown {

@@ -67,16 +67,15 @@ export async function runVLMDualRoute(args: {
   let classifierClass = "OTHER";
   let classifyConfidence = 0;
   try {
-    const classifyResult = await complete({
+    const classifyResult = await completeVision({
       taskType: "CLASSIFY_IMAGE" as TaskType,
       prompt: {
         id: "classify_image/v1",
-        template: `Classify this image as CHART, TABLE, TEXT_SCREENSHOT, or OTHER. Return {class, confidence}.
-
-Image ref: ${imageRef}`,
+        template: `Classify this image as CHART, TABLE, TEXT_SCREENSHOT, or OTHER. Return {class, confidence}.`,
       },
       schema: classifySchema,
       cacheKey: `classify:${imageRef}`,
+      imageRef,
     });
     const parsed = classifySchema.safeParse(classifyResult.data);
     if (parsed.success) {

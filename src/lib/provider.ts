@@ -386,17 +386,31 @@ export async function completeVision(req: VisionRequest): Promise<CompletionResu
   }
 
   // Production: send image + text to Claude's vision API
+  // Fetch the image bytes and convert to base64 (Claude doesn't accept URLs
+  // from CDNs that block server-side requests like Twitter's pbs.twimg.com)
   const sys = `You are part of the Narrative Intelligence Platform. Analyze the image and return JSON matching the schema exactly. Prompt version: ${req.prompt.id}`;
   const userText = req.prompt.template + (req.prompt.params ? `\n\nParams: ${JSON.stringify(req.prompt.params)}` : "");
 
   try {
-    let resp: any;
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("vision-timeout-15s")), 15_000)
-    );
+    // Step 1: Fetch the image bytes
+    const imgResp = await fetch(imageUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!imgResp.ok) {
+      throw new Error(`image fetch failed: HTTP ${imgResp.status}`);
+    }
+    const contentType = imgResp.headers.get("content-type") || "image/jpeg";
+    const arrayBuffer = await imgResp.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
-    // Claude vision API with image URL
-    // Format: type='image' (NOT 'image_url'), source={ type: 'url', url: ... }
+    // Determine media type
+    let mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" = "image/jpeg";
+    if (contentType.includes("png")) mediaType = "image/png";
+    else if (contentType.includes("gif")) mediaType = "image/gif";
+    else if (contentType.includes("webp")) mediaType = "image/webp";
+
+    // Step 2: Send to Claude with base64 image
     const callPromise = client.messages.create({
       model: cfg.model,
       max_tokens: cfg.maxTokens,
@@ -407,8 +421,9 @@ export async function completeVision(req: VisionRequest): Promise<CompletionResu
           {
             type: "image",
             source: {
-              type: "url",
-              url: imageUrl,
+              type: "base64",
+              media_type: mediaType,
+              data: base64Data,
             },
           },
           {
@@ -419,7 +434,11 @@ export async function completeVision(req: VisionRequest): Promise<CompletionResu
       }],
     });
 
-    resp = await Promise.race([callPromise, timeoutPromise]);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("vision-timeout-30s")), 30_000)
+    );
+
+    const resp = await Promise.race([callPromise, timeoutPromise]);
     const raw = resp.content?.[0]?.text ?? "";
     const tokensIn = resp.usage?.input_tokens ?? 1000;
     const tokensOut = resp.usage?.output_tokens ?? Math.ceil(raw.length / 4);

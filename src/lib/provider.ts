@@ -451,7 +451,8 @@ export async function completeVision(req: VisionRequest): Promise<CompletionResu
       strippedFields: stripped,
     };
   } catch (e: any) {
-    // L3: errors are never verdicts — return PENDING_RETRY
+    // L3: errors are never verdicts — log the error and return PENDING_RETRY
+    console.error(`[completeVision] ${req.taskType} failed:`, e?.message || e);
     const mock = mockComplete(req);
     mock.latencyMs = Date.now() - t0;
     return mock;

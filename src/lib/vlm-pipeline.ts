@@ -74,7 +74,7 @@ export async function runVLMDualRoute(args: {
         template: `Classify this image as CHART, TABLE, TEXT_SCREENSHOT, or OTHER. Return {class, confidence}.`,
       },
       schema: classifySchema,
-      cacheKey: `classify:${imageRef}`,
+      cacheKey: `classify:v2:${imageRef}`,
       imageRef,
     });
     const parsed = classifySchema.safeParse(classifyResult.data);

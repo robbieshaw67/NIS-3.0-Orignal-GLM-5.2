@@ -569,79 +569,174 @@ export async function runXAdapter() {
 // ─────────────────────────────────────────────────────────────────────
 
 const TRANSCRIPT_CHANNELS = [
-  { channelUrl: "https://youtube.com/@SemiAnalysis", handle: "semi_analysis", realName: "SemiAnalysis" },
+  { handle: "UCf_KhBXw5TIV0A7butjgFhg", realName: "SemiAnalysis", channelHandle: "semi_analysis" },
+  { handle: "UCqK_GSMbpiV8spgD3ZGloSw", realName: "Coin Bureau", channelHandle: "coinbureau" },
 ];
 
 export async function runTranscriptAdapter() {
   const jobRun = await startJobRun("adapters:transcripts");
-  const counts = { fetched: 0, new: 0, deduped: 0, extracted: 0, whisperFallback: 0 };
+  const counts = { fetched: 0, new: 0, deduped: 0, extracted: 0, transcriptFetched: 0, transcriptFailed: 0 };
 
   try {
+    // Import the real YouTube adapter
+    const { resolveChannelId, fetchYouTubeVideos, fetchTranscript } = await import("./youtube-adapter");
+
     // Merge DB-managed sources with hardcoded fallback
     const dbSources = await getActiveSources("TRANSCRIPT");
     const allChannels = [
-      ...dbSources.map(s => ({ channelUrl: s.channelUrl || s.handle, handle: s.handle, realName: s.realName })),
-      ...TRANSCRIPT_CHANNELS,
+      ...dbSources.map(s => ({ handle: s.handle, realName: s.realName, channelHandle: s.handle.replace("@", "") })),
+      ...TRANSCRIPT_CHANNELS.map(c => ({ handle: c.handle, realName: c.realName, channelHandle: c.channelHandle })),
     ].filter((v, i, a) => a.findIndex(x => x.handle === v.handle) === i);
 
     for (const c of allChannels) {
-      const wm = await getWatermark("TRANSCRIPT", c.channelUrl);
+      const wm = await getWatermark("TRANSCRIPT", c.handle);
       counts.fetched++;
 
-      // In production: poll YouTube channel RSS for new uploads, then yt-dlp captions.
-      // Whisper fallback when captions unavailable.
-      const newVideoId = `yt:${c.handle}:${Date.now()}`;
-      if (wm?.lastExternalId === newVideoId) { counts.deduped++; continue; }
-
-      const bodyText = `${c.realName} — new episode transcript\n\nIn this episode we discuss semiconductor supply chain dynamics. No new directional calls.`;
-      const { id: rawId, created } = await storeRaw({
-        url: `https://youtube.com/watch?v=${newVideoId}`,
-        title: `${c.realName} — episode`,
-        bodyText,
-        adapterType: "TRANSCRIPT",
-        adapterVersion: "yt-dlp+v3",
-      });
-
-      if (!created) { counts.deduped++; continue; }
-      counts.new++;
-
-      const author = await db.author.findUnique({ where: { handle: c.handle } });
-      if (author) {
-        const result = await triageAndExtract(bodyText, author.id, rawId);
-        if (!result.skipped) {
-          counts.extracted++;
-          await db.source.create({
+      try {
+        // Step 1: Resolve channel ID (handle → UC... if needed)
+        const channelId = await resolveChannelId(c.handle);
+        if (!channelId) {
+          counts.transcriptFailed++;
+          await db.queueItem.create({
             data: {
-              rawContentId: rawId,
-              extractionVersion: "deep_extract/v3",
-              authorId: author.id,
-              dateIso: result.extracted!.dateIso,
-              dateEarliest: result.extracted!.dateEarliest,
-              dateLatest: result.extracted!.dateLatest,
-              direction: result.extracted!.direction,
-              conviction: result.extracted!.conviction,
-              confidence: result.extracted!.confidence,
-              insightType: result.extracted!.insightType,
-              verbatimQuote: result.extracted!.verbatimQuote,
-              keyInsight: result.extracted!.keyInsight,
-              tickers: result.extracted!.tickers as any,
-              entities: result.extracted!.entities as any,
-              independenceClass: "UNCLASSIFIED",
-              spanStart: result.extracted!.spanStart,
-              spanEnd: result.extracted!.spanEnd,
-              spanConfidence: result.extracted!.spanConfidence,
+              type: "ALERT",
+              priority: 5,
+              summary: `YouTube adapter: Could not resolve channel ID for @${c.channelHandle}`,
+              payload: { handle: c.handle, cause: "channel ID resolution failed" } as any,
+              status: "OPEN",
             },
           });
-          await db.rawContent.update({ where: { id: rawId }, data: { extractionStatus: "EXTRACTED" } });
+          continue;
         }
-      }
 
-      await setWatermark("TRANSCRIPT", c.channelUrl, { lastExternalId: newVideoId });
+        // Step 2: Fetch recent videos from YouTube RSS
+        const result = await fetchYouTubeVideos(channelId, 5);
+        if (result.error) {
+          counts.transcriptFailed++;
+          continue;
+        }
+
+        if (result.videos.length === 0) {
+          counts.deduped++;
+          continue;
+        }
+
+        // Step 3: Process each video
+        let newestVideoId = "";
+        for (const video of result.videos) {
+          // Skip if already seen (watermark check)
+          if (wm?.lastExternalId && video.videoId === wm.lastExternalId) {
+            counts.deduped++;
+            continue;
+          }
+          // Also skip if we've already stored this video (content hash dedup)
+          const videoHash = `yt:${video.videoId}`;
+          if (wm?.lastExternalId === video.videoId) {
+            counts.deduped++;
+            continue;
+          }
+
+          // Step 4: Fetch transcript (best-effort)
+          const transcriptResult = await fetchTranscript(video.videoId);
+          let bodyText: string;
+
+          if (transcriptResult.transcript) {
+            bodyText = `${video.title}\n\n${transcriptResult.transcript}`;
+            counts.transcriptFetched++;
+          } else {
+            // Graceful fallback: store video metadata without transcript
+            bodyText = `${video.title}\n\n(Transcript unavailable: ${transcriptResult.error || "no captions"})\n\nVideo URL: ${video.url}\nPublished: ${video.publishedAt}`;
+            counts.transcriptFailed++;
+          }
+
+          const { id: rawId, created } = await storeRaw({
+            url: video.url,
+            title: `${video.author} — ${video.title}`,
+            bodyText,
+            adapterType: "TRANSCRIPT",
+            adapterVersion: "youtube-rss+v1",
+            threadId: `yt:${video.videoId}`,
+          });
+
+          if (!created) { counts.deduped++; continue; }
+          counts.new++;
+
+          // Track newest video ID for watermark
+          if (!newestVideoId || video.videoId > newestVideoId) {
+            newestVideoId = video.videoId;
+          }
+
+          // Step 5: Extract using the triage + deep extract pipeline
+          // Try to find the author by channel handle (with and without @)
+          const author = await db.author.findUnique({ where: { handle: c.channelHandle } }).catch(() => null)
+            ?? await db.author.findUnique({ where: { handle: `@${c.channelHandle}` } }).catch(() => null)
+            ?? await db.author.findUnique({ where: { handle: c.realName } }).catch(() => null);
+
+          if (author && transcriptResult.transcript) {
+            // Only extract if we have a real transcript
+            const result = await triageAndExtract(bodyText, author.id, rawId);
+            if (!result.skipped) {
+              counts.extracted++;
+              await db.source.create({
+                data: {
+                  rawContentId: rawId,
+                  extractionVersion: "deep_extract/v3",
+                  authorId: author.id,
+                  dateIso: result.extracted!.dateIso,
+                  dateEarliest: result.extracted!.dateEarliest,
+                  dateLatest: result.extracted!.dateLatest,
+                  direction: result.extracted!.direction,
+                  conviction: result.extracted!.conviction,
+                  confidence: result.extracted!.confidence,
+                  insightType: result.extracted!.insightType,
+                  verbatimQuote: result.extracted!.verbatimQuote,
+                  keyInsight: result.extracted!.keyInsight,
+                  tickers: result.extracted!.tickers as any,
+                  entities: result.extracted!.entities as any,
+                  independenceClass: "UNCLASSIFIED",
+                  spanStart: result.extracted!.spanStart,
+                  spanEnd: result.extracted!.spanEnd,
+                  spanConfidence: result.extracted!.spanConfidence,
+                },
+              });
+              await db.rawContent.update({
+                where: { id: rawId },
+                data: {
+                  extractionStatus: "EXTRACTED",
+                  hasTimestamps: transcriptResult.hasTimestamps,
+                  hasSpeakerLabels: false,
+                  mediaType: "VIDEO_TRANSCRIPT",
+                  videoUrl: video.url,
+                },
+              });
+            }
+          } else {
+            // No author found or no transcript — mark as pending
+            await db.rawContent.update({
+              where: { id: rawId },
+              data: {
+                extractionStatus: "PENDING",
+                mediaType: "VIDEO_TRANSCRIPT",
+                videoUrl: video.url,
+              },
+            });
+          }
+        }
+
+        // Update watermark with the newest video ID
+        if (newestVideoId) {
+          await setWatermark("TRANSCRIPT", c.handle, { lastExternalId: newestVideoId });
+        }
+      } catch (e: any) {
+        counts.transcriptFailed++;
+        console.error(`YouTube adapter error for @${c.channelHandle}:`, e.message);
+      }
     }
 
-    await endJobRun(jobRun.id, "DONE", counts);
-    await updateAdapterHealth("transcript", true);
-    return { ok: true, counts };
+    await endJobRun(jobRun.id, counts.new > 0 || counts.deduped > 0 ? "DONE" : "FAILED", counts);
+    const cause = counts.transcriptFailed > 0 ? `${counts.transcriptFailed} transcript fetches failed` : "";
+    await updateAdapterHealth("transcript", counts.new > 0, cause || undefined);
+    return { ok: counts.new > 0 || counts.deduped > 0, counts };
   } catch (e: any) {
     await endJobRun(jobRun.id, "FAILED", counts, e.message);
     await updateAdapterHealth("transcript", false, e.message);
